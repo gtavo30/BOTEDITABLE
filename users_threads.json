@@ -1,0 +1,20 @@
+[
+  {
+    "customer phone number": "+923350584458",
+    "thread id": {
+      "id": "thread_F4Hn3KqhZT98x3qT6Jlo7us8",
+      "object": "thread",
+      "created_at": 1706866263,
+      "metadata": {}
+    }
+  },
+  {
+    "customer phone number": "+923350584461",
+    "thread id": {
+      "id": "thread_mclZLksVOTSAnBKcrtTQZ9sp",
+      "object": "thread",
+      "created_at": 1706866561,
+      "metadata": {}
+    }
+  }
+]
