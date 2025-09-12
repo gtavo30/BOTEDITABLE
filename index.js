@@ -317,7 +317,32 @@ app.post("/webhook", async (req, res) => {
                 let from = body_param.entry[0].changes[0].value.messages[0].from;
                 let msg_body = body_param.entry[0].changes[0].value.messages[0].text.body;
 
-                if (from == FOLLOWUP_MESSAGES_TRIGGER_NUMBER) {
+                
+
+// --- Enhanced event logs (trace + full payload for Render debugging) ---
+try {
+    const msg = body_param.entry[0].changes[0].value.messages[0];
+    const trace = msg.id || String(Date.now());
+    const type = msg.type;
+    const ts = msg.timestamp;
+    console.log('[EVENT]', { trace, from, type, ts, phone_number_id: phone_no_id });
+    const _event = {
+        channel: 'whatsapp',
+        business_account_id: (body_param.entry && body_param.entry[0] && body_param.entry[0].id) || '',
+        phone_number_id: phone_no_id,
+        message_id: msg.id,
+        from: from,
+        timestamp: ts,
+        type: type,
+        text: (msg.text && msg.text.body) || (msg.button && msg.button.text) || '',
+        raw: body_param.entry[0].changes[0].value
+    };
+    console.log('[EVENT PAYLOAD]', JSON.stringify(_event));
+} catch (e) {
+    console.error('[EVENT LOG ERROR]', e && e.message ? e.message : e);
+}
+// --- End enhanced logs ---
+if (from == FOLLOWUP_MESSAGES_TRIGGER_NUMBER) {
                     if (msg_body == FOLLOWUP_MESSAGES_TRIGGER_COMMAND) {
                         const followUpFunctionResponse = await followUpFunction(phone_no_id, token);
                         console.log(followUpFunctionResponse);
@@ -450,3 +475,7 @@ async function sendResponse(response, phone_no_id, token, to) {
 app.get("/", (req, res) => {
     res.status(200).send("hello bro");
 })
+// Healthcheck simple (no expone secretos ni lógica)
+app.get('/healthz', (_req, res) => {
+  res.status(200).json({ ok: true, uptime: process.uptime() });
+});
