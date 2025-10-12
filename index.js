@@ -180,19 +180,14 @@ async function addCustomerContactAndProjectToCRM(
         createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
 
-    if (conversationHistory && conversationHistory.length > 0) {
-        conversationHistory.forEach((msg, index) => {
-            const sender = msg.sender === 'cliente' ? '👤 Cliente' : '🤖 Sofía';
-            const commentText = `[${msg.timestamp}] ${sender}: ${msg.message}`;
-            
-            commands[`addConvMsg${index}`] = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent(commentText)}`;
-        });
-    }
-
+    // 🔥 FIX: Usar formato correcto de Bitrix con camelCase
     if (comments) {
-        commands.addSummary = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('📋 RESUMEN: ' + comments)}`;
+        const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
+        commands.addSummary = `crm.timeline.comment.add?entityId=$result[createDeal]&entityType=deal&comment=${encodeURIComponent(summaryText)}`;
+        console.log('[addCustomer] Adding summary with length:', summaryText.length);
     } else {
-        commands.addNote = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('Lead registrado desde WhatsApp. Proyecto: ' + projectName)}`;
+        const defaultNote = 'Lead registrado desde WhatsApp. Proyecto: ' + projectName;
+        commands.addNote = `crm.timeline.comment.add?entityId=$result[createDeal]&entityType=deal&comment=${encodeURIComponent(defaultNote)}`;
     }
 
     const params = new URLSearchParams();
@@ -217,7 +212,14 @@ async function addCustomerContactAndProjectToCRM(
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
             console.log('[addCustomer] Deal created with ID:', dealId);
-            console.log(`[addCustomer] Added ${conversationHistory.length} conversation messages to timeline`);
+            
+            // Check if summary was added successfully
+            if (response.data.result.result.addSummary) {
+                console.log('[addCustomer] ✅ Summary added to timeline successfully');
+            } else if (response.data.result.result_error && response.data.result.result_error.addSummary) {
+                console.error('[addCustomer] ❌ Error adding summary:', response.data.result.result_error.addSummary);
+            }
+            
             return "The customer contact has been saved - don't tell the customer about that it's just for our backend";
         } else {
             console.error('[addCustomer] Batch error:', response.data);
