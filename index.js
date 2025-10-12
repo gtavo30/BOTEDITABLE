@@ -6,7 +6,6 @@ const fs = require('fs');
 
 require("dotenv").config();
 
-// ✅ CAMBIO 1: Importar bitrixWebhookClient
 const { appendDealChatResumen } = require('./bitrixWebhookClient');
 
 const app = express().use(body_parser.json());
@@ -82,6 +81,8 @@ const followUpFunction = async (phone_no_id, token) => {
 };
 
 const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName) => {
+    console.log('[sendApptNotification] Starting...', { recipientName, date, time, projectName });
+    
     try {
         const message_payload = {
             'messaging_product': 'whatsapp',
@@ -111,9 +112,10 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
             'Content-Type': 'application/json'
         };
 
+        console.log('[sendApptNotification] Sending to salesman...', SALES_MAN);
         const response = await axios.post(url, message_payload, { headers });
 
-        console.log(response.data);
+        console.log('[sendApptNotification] Response:', response.data);
         console.log("Salesman notified of the appointment scheduled.");
 
         try {
@@ -134,12 +136,15 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
         return "Thank you for booking the appointment. We'll get back to you soon.";
 
     } catch (error) {
-        console.error('Error notifying salesman of the appointment notification:', error);
-        return null;
+        console.error('[sendApptNotification] Error:', error.message);
+        console.error('[sendApptNotification] Stack:', error.stack);
+        if (error.response) {
+            console.error('[sendApptNotification] Response data:', error.response.data);
+        }
+        return "Error notifying salesman";
     }
 };
 
-// ✅ NUEVO: Función actualizada con soporte para conversationHistory
 async function addCustomerContactAndProjectToCRM(
     phone_no_id, 
     token, 
@@ -157,9 +162,11 @@ async function addCustomerContactAndProjectToCRM(
         lastName, 
         email, 
         projectName,
-        commentsLength: comments.length,
-        conversationLength: conversationHistory.length
+        commentsLength: comments ? comments.length : 0,
+        conversationLength: conversationHistory ? conversationHistory.length : 0
     });
+    
+    console.log('[addCustomer] Comments content:', comments);
     
     if (!BITRIX_WEBHOOK_BASE) {
         console.error('[addCustomer] BITRIX_WEBHOOK_BASE not set');
@@ -168,13 +175,11 @@ async function addCustomerContactAndProjectToCRM(
 
     const batchUrl = `${BITRIX_WEBHOOK_BASE.replace(/\/$/, '')}/batch.json`;
     
-    // Comandos base
     const commands = {
         createContact: `crm.contact.add?FIELDS[NAME]=${encodeURIComponent('')}&FIELDS[LAST_NAME]=${encodeURIComponent(firstName + ' ' + lastName)}&FIELDS[EMAIL][0][VALUE]=${encodeURIComponent(email)}&FIELDS[EMAIL][0][VALUE_TYPE]=WORK&FIELDS[PHONE][0][VALUE]=${encodeURIComponent(recipientNumber)}&FIELDS[PHONE][0][VALUE_TYPE]=WORK`,
         createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
 
-    // Agregar conversación completa al timeline (cada mensaje como entrada separada)
     if (conversationHistory && conversationHistory.length > 0) {
         conversationHistory.forEach((msg, index) => {
             const sender = msg.sender === 'cliente' ? '👤 Cliente' : '🤖 Sofía';
@@ -184,11 +189,9 @@ async function addCustomerContactAndProjectToCRM(
         });
     }
 
-    // Agregar resumen ejecutivo al final si existe
     if (comments) {
         commands.addSummary = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('📋 RESUMEN: ' + comments)}`;
     } else {
-        // Nota por defecto si no hay resumen
         commands.addNote = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('Lead registrado desde WhatsApp. Proyecto: ' + projectName)}`;
     }
 
@@ -199,6 +202,7 @@ async function addCustomerContactAndProjectToCRM(
     }
 
     try {
+        console.log('[addCustomer] Sending batch request...');
         const response = await axios({
             method: 'POST',
             url: batchUrl,
@@ -221,6 +225,7 @@ async function addCustomerContactAndProjectToCRM(
         }
     } catch (error) {
         console.error('[addCustomer] Error:', error.message);
+        console.error('[addCustomer] Stack:', error.stack);
         return null;
     }
 }
@@ -268,14 +273,26 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
         }
     );
 
-    console.log(run.id);
+    console.log('Run ID:', run.id);
 
     const checkStatusAndPrintMessages = async (threadId, runId) => {
         try {
             let runStatus;
-            while (true) {
-                runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
-                console.log(runStatus.status);
+            let attempts = 0;
+            const maxAttempts = 60; // 60 segundos máximo
+            
+            while (attempts < maxAttempts) {
+                attempts++;
+                
+                try {
+                    runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
+                } catch (error) {
+                    console.error('Error retrieving run status:', error.message);
+                    await delay(2000);
+                    continue;
+                }
+                
+                console.log(`[${attempts}/${maxAttempts}] Run status:`, runStatus.status);
                 
                 if (runStatus.status === "completed") {
                     break;
@@ -283,9 +300,8 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                     console.log("Requires action");
 
                     const requiredActions = runStatus.required_action.submit_tool_outputs.tool_calls;
-                    console.log(requiredActions);
+                    console.log('Required actions:', JSON.stringify(requiredActions, null, 2));
 
-                    // ✅ CAMBIO 3: Agregar appendDealChatResumen al dispatch table
                     const dispatchTable = {
                         "addCustomerContactAndProjectToCRM": addCustomerContactAndProjectToCRM,
                         "sendApptNotificationToSalesMan": sendApptNotificationToSalesMan,
@@ -299,43 +315,62 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                         const functionArguments = JSON.parse(action.function.arguments);
 
                         if (dispatchTable[funcName]) {
-                            console.log("dispatchTable[funcName]", dispatchTable[funcName]);
+                            console.log(`Executing function: ${funcName}`);
+                            console.log('Arguments:', JSON.stringify(functionArguments, null, 2));
+                            
                             try {
                                 const output = await dispatchTable[funcName](phone_no_id, token, recipientNumber, ...Object.values(functionArguments));
-                                console.log(output);
+                                
+                                console.log(`Function ${funcName} completed. Output:`, output);
                                 toolsOutput.push({ tool_call_id: action.id, output: JSON.stringify(output) });
                             } catch (error) {
-                                console.log(`Error executing function ${funcName}: ${error}`);
+                                console.error(`Error executing function ${funcName}:`, error.message);
+                                console.error('Stack:', error.stack);
+                                toolsOutput.push({ 
+                                    tool_call_id: action.id, 
+                                    output: JSON.stringify({ error: error.message }) 
+                                });
                             }
                         } else {
-                            console.log("Function not found");
+                            console.log("Function not found:", funcName);
                         }
                     }
 
+                    console.log('Submitting tool outputs...');
                     await openai.beta.threads.runs.submitToolOutputs(
                         thread.id,
                         run.id,
                         { tool_outputs: toolsOutput }
                     );
+                    console.log('Tool outputs submitted successfully');
+                } else if (runStatus.status === 'failed') {
+                    console.error('Run failed:', runStatus.last_error);
+                    return "Lo siento, hubo un error procesando tu solicitud.";
                 }
                 
-                console.log("Run is not completed yet.");
-                // ✅ CAMBIO 4: DESCOMENTAR delay para polling estable
+                console.log("Run is not completed yet, waiting...");
                 await delay(1000);
+            }
+            
+            // Si llegamos aquí, excedimos el timeout
+            if (attempts >= maxAttempts) {
+                console.error('⚠️ TIMEOUT: Run exceeded maximum attempts');
+                return "Lo siento, hubo un problema procesando tu solicitud. Por favor intenta de nuevo.";
             }
 
             let messages = await openai.beta.threads.messages.list(threadId);
-            console.log("messages", messages);
+            console.log("Final messages retrieved, count:", messages.data.length);
             return messages.data[0].content[0].text.value;
         } catch (error) {
             console.error('Error in checkStatusAndPrintMessages:', error.message);
+            console.error('Stack:', error.stack);
+            return "Lo siento, hubo un error. Por favor intenta de nuevo.";
         }
     };
 
     return await checkStatusAndPrintMessages(thread.id, run.id);
 };
 
-// ✅ CAMBIO 5: Función delay restaurada
 function delay(ms) {
     return new Promise((resolve) => {
         setTimeout(resolve, ms);
@@ -358,6 +393,9 @@ app.post("/webhook", async (req, res) => {
                 let from = body_param.entry[0].changes[0].value.messages[0].from;
                 let msg_body = body_param.entry[0].changes[0].value.messages[0].text.body;
 
+                console.log('Message received from:', from);
+                console.log('Message body:', msg_body);
+
                 if (from == FOLLOWUP_MESSAGES_TRIGGER_NUMBER) {
                     if (msg_body == FOLLOWUP_MESSAGES_TRIGGER_COMMAND) {
                         const followUpFunctionResponse = await followUpFunction(phone_no_id, token);
@@ -366,9 +404,10 @@ app.post("/webhook", async (req, res) => {
                         console.log(`Please select the right command to trigger the follow-up: "${FOLLOWUP_MESSAGES_TRIGGER_COMMAND}"`);
                     }
                 } else {
+                    console.log('Getting assistant response...');
                     let assistantResponse = await getAssistantResponse(msg_body, phone_no_id, token, from);
 
-                    console.log("assistantResponse", assistantResponse);
+                    console.log("Assistant response:", assistantResponse);
 
                     await axios({
                         method: "POST",
@@ -385,6 +424,7 @@ app.post("/webhook", async (req, res) => {
                         }
                     });
 
+                    console.log('Response sent to user');
                     res.sendStatus(200);
                 }
 
@@ -394,6 +434,7 @@ app.post("/webhook", async (req, res) => {
         }
     } catch (error) {
         console.error('Error in webhook processing:', error);
+        console.error('Stack:', error.stack);
         res.sendStatus(500);
     }
 });
