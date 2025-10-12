@@ -10,8 +10,15 @@ const { appendDealChatResumen } = require('./bitrixWebhookClient');
 
 const app = express().use(body_parser.json());
 
+// WhatsApp tokens
 const token = process.env.TOKEN;
 const mytoken = process.env.MYTOKEN;
+
+// Messenger/Instagram tokens
+const MESSENGER_PAGE_TOKEN = process.env.MESSENGER_PAGE_TOKEN;
+const INSTAGRAM_PAGE_TOKEN = process.env.INSTAGRAM_PAGE_TOKEN;
+
+// OpenAI & Bitrix
 const apiKey = process.env.OPENAI_API_KEY;
 const assistantId = process.env.ASSISTANT_ID;
 const SALES_MAN = process.env.SALES_MAN;
@@ -27,6 +34,7 @@ app.listen(8000 || process.env.PORT, () => {
     console.log("webhook is listening");
 });
 
+// ✅ Webhook verification - funciona para WhatsApp, Messenger e Instagram
 app.get("/webhook", (req, res) => {
     let mode = req.query["hub.mode"];
     let challenge = req.query["hub.challenge"];
@@ -180,7 +188,7 @@ async function addCustomerContactAndProjectToCRM(
         createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
 
-    // 🔥 FIX: Bitrix requiere fields[PARAMETER] para timeline.comment.add
+    // Bitrix requiere fields[PARAMETER] para timeline.comment.add
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
         commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
@@ -213,7 +221,6 @@ async function addCustomerContactAndProjectToCRM(
             const dealId = response.data.result.result.createDeal;
             console.log('[addCustomer] Deal created with ID:', dealId);
             
-            // Check if summary was added successfully
             if (response.data.result.result.addSummary) {
                 console.log('[addCustomer] ✅ Summary added to timeline successfully');
             } else if (response.data.result.result_error && response.data.result.result_error.addSummary) {
@@ -323,7 +330,6 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                             try {
                                 let output;
                                 
-                                // 🔥 FIX: Llamar funciones con parámetros explícitos
                                 if (funcName === 'addCustomerContactAndProjectToCRM') {
                                     output = await addCustomerContactAndProjectToCRM(
                                         phone_no_id,
@@ -410,13 +416,43 @@ function delay(ms) {
     });
 }
 
+// 🔥 NUEVA FUNCIÓN: Enviar mensaje a Messenger/Instagram
+async function sendMessageToFacebook(recipientId, message, pageToken) {
+    try {
+        const response = await axios({
+            method: "POST",
+            url: `https://graph.facebook.com/v18.0/me/messages`,
+            data: {
+                recipient: { id: recipientId },
+                message: { text: message }
+            },
+            headers: {
+                "Content-Type": "application/json"
+            },
+            params: {
+                access_token: pageToken
+            }
+        });
+        console.log('[Facebook] Message sent successfully');
+        return response.data;
+    } catch (error) {
+        console.error('[Facebook] Error sending message:', error.response ? error.response.data : error.message);
+        throw error;
+    }
+}
+
+// 🔥 WEBHOOK PRINCIPAL - Maneja WhatsApp, Messenger e Instagram
 app.post("/webhook", async (req, res) => {
     try {
         let body_param = req.body;
 
         console.log(JSON.stringify(body_param, null, 2));
 
-        if (body_param.object) {
+        // Detectar la plataforma
+        const object = body_param.object;
+        
+        // ========== WHATSAPP ==========
+        if (object === "whatsapp_business_account") {
             if (body_param.entry &&
                 body_param.entry[0].changes &&
                 body_param.entry[0].changes[0].value.messages &&
@@ -426,8 +462,8 @@ app.post("/webhook", async (req, res) => {
                 let from = body_param.entry[0].changes[0].value.messages[0].from;
                 let msg_body = body_param.entry[0].changes[0].value.messages[0].text.body;
 
-                console.log('Message received from:', from);
-                console.log('Message body:', msg_body);
+                console.log('[WhatsApp] Message received from:', from);
+                console.log('[WhatsApp] Message body:', msg_body);
 
                 if (from == FOLLOWUP_MESSAGES_TRIGGER_NUMBER) {
                     if (msg_body == FOLLOWUP_MESSAGES_TRIGGER_COMMAND) {
@@ -437,10 +473,10 @@ app.post("/webhook", async (req, res) => {
                         console.log(`Please select the right command to trigger the follow-up: "${FOLLOWUP_MESSAGES_TRIGGER_COMMAND}"`);
                     }
                 } else {
-                    console.log('Getting assistant response...');
+                    console.log('[WhatsApp] Getting assistant response...');
                     let assistantResponse = await getAssistantResponse(msg_body, phone_no_id, token, from);
 
-                    console.log("Assistant response:", assistantResponse);
+                    console.log("[WhatsApp] Assistant response:", assistantResponse);
 
                     await axios({
                         method: "POST",
@@ -457,13 +493,53 @@ app.post("/webhook", async (req, res) => {
                         }
                     });
 
-                    console.log('Response sent to user');
+                    console.log('[WhatsApp] Response sent to user');
                     res.sendStatus(200);
                 }
-
             } else {
                 res.sendStatus(404);
             }
+        }
+        // ========== MESSENGER / INSTAGRAM ==========
+        else if (object === "page" || object === "instagram") {
+            if (body_param.entry && body_param.entry[0].messaging && body_param.entry[0].messaging[0]) {
+                const messagingEvent = body_param.entry[0].messaging[0];
+                const senderId = messagingEvent.sender.id;
+                const messageText = messagingEvent.message ? messagingEvent.message.text : null;
+
+                // Detectar si es Messenger o Instagram
+                const platform = object === "instagram" ? "Instagram" : "Messenger";
+                const pageToken = object === "instagram" ? INSTAGRAM_PAGE_TOKEN : MESSENGER_PAGE_TOKEN;
+
+                if (!pageToken) {
+                    console.error(`[${platform}] Token not configured`);
+                    return res.sendStatus(500);
+                }
+
+                if (messageText) {
+                    console.log(`[${platform}] Message received from:`, senderId);
+                    console.log(`[${platform}] Message body:`, messageText);
+
+                    console.log(`[${platform}] Getting assistant response...`);
+                    let assistantResponse = await getAssistantResponse(messageText, null, pageToken, senderId);
+
+                    console.log(`[${platform}] Assistant response:`, assistantResponse);
+
+                    await sendMessageToFacebook(senderId, assistantResponse, pageToken);
+
+                    console.log(`[${platform}] Response sent to user`);
+                    res.sendStatus(200);
+                } else {
+                    console.log(`[${platform}] Received event without text message`);
+                    res.sendStatus(200);
+                }
+            } else {
+                res.sendStatus(404);
+            }
+        }
+        else {
+            console.log('Unknown webhook object:', object);
+            res.sendStatus(404);
         }
     } catch (error) {
         console.error('Error in webhook processing:', error);
