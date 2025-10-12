@@ -30,6 +30,19 @@ const openai = new OpenAI({
     apiKey: apiKey,
 });
 
+// 🔥 CACHE para deduplicación de mensajes (en memoria)
+const processedMessages = new Set();
+const CACHE_CLEANUP_INTERVAL = 3600000; // 1 hora
+const CACHE_MAX_SIZE = 10000;
+
+// Limpiar cache periódicamente
+setInterval(() => {
+    if (processedMessages.size > CACHE_MAX_SIZE) {
+        processedMessages.clear();
+        console.log('📦 Message cache cleared');
+    }
+}, CACHE_CLEANUP_INTERVAL);
+
 app.listen(8000 || process.env.PORT, () => {
     console.log("webhook is listening");
 });
@@ -88,44 +101,101 @@ const followUpFunction = async (phone_no_id, token) => {
     }
 };
 
-const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName) => {
-    console.log('[sendApptNotification] Starting...', { recipientName, date, time, projectName });
+const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
+    console.log('[sendApptNotification] Starting...', { recipientName, recipientNumber, date, time, projectName, platform });
     
     try {
-        const message_payload = {
-            'messaging_product': 'whatsapp',
-            'to': SALES_MAN,
-            'type': 'template',
-            'template': {
-                'name': 'salesman_appoimant_contact',
-                'language': { 'code': 'es' },
-                'components': [
-                    {
-                        'type': 'body',
-                        'parameters': [
-                            { 'type': 'text', 'text': recipientName },
-                            { 'type': 'text', 'text': recipientNumber },
-                            { 'type': 'text', 'text': date },
-                            { 'type': 'text', 'text': time },
-                            { 'type': 'text', 'text': projectName },
+        // Validar que recipientNumber sea un número de teléfono válido
+        const phoneRegex = /^\+?[0-9]{10,15}$/;
+        const isValidPhone = phoneRegex.test(recipientNumber.replace(/\s/g, ''));
+        
+        if (!isValidPhone) {
+            console.error('[sendApptNotification] ❌ Invalid phone number:', recipientNumber);
+            return "Error: El número de teléfono proporcionado no es válido. Por favor proporciona un número válido para agendar la cita.";
+        }
+
+        // Enviar notificación via WhatsApp
+        if (platform === 'whatsapp' && phone_no_id) {
+            const message_payload = {
+                'messaging_product': 'whatsapp',
+                'to': SALES_MAN,
+                'type': 'template',
+                'template': {
+                    'name': 'salesman_appoimant_contact',
+                    'language': { 'code': 'es' },
+                    'components': [
+                        {
+                            'type': 'body',
+                            'parameters': [
+                                { 'type': 'text', 'text': recipientName },
+                                { 'type': 'text', 'text': recipientNumber },
+                                { 'type': 'text', 'text': date },
+                                { 'type': 'text', 'text': time },
+                                { 'type': 'text', 'text': projectName },
+                            ]
+                        }
+                    ]
+                }
+            };
+
+            const url = `https://graph.facebook.com/v18.0/${phone_no_id}/messages`;
+            const headers = {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            };
+
+            console.log('[sendApptNotification] Sending to salesman...', SALES_MAN);
+            const response = await axios.post(url, message_payload, { headers });
+
+            console.log('[sendApptNotification] Response:', response.data);
+            console.log("Salesman notified of the appointment scheduled via WhatsApp.");
+        } else if (platform === 'messenger' || platform === 'instagram') {
+            // Para Messenger/Instagram, enviamos notificación via WhatsApp al vendedor también
+            // usando el número de teléfono del cliente que él proporcionó
+            console.log('[sendApptNotification] Messenger/Instagram: Sending notification via WhatsApp to salesman');
+            
+            // Necesitamos usar el phone_no_id de WhatsApp (el de la empresa)
+            // Este debe estar configurado como variable de entorno
+            const whatsappPhoneId = process.env.WHATSAPP_PHONE_ID || phone_no_id;
+            const whatsappToken = process.env.TOKEN;
+            
+            if (whatsappPhoneId && whatsappToken) {
+                const message_payload = {
+                    'messaging_product': 'whatsapp',
+                    'to': SALES_MAN,
+                    'type': 'template',
+                    'template': {
+                        'name': 'salesman_appoimant_contact',
+                        'language': { 'code': 'es' },
+                        'components': [
+                            {
+                                'type': 'body',
+                                'parameters': [
+                                    { 'type': 'text', 'text': recipientName },
+                                    { 'type': 'text', 'text': recipientNumber },
+                                    { 'type': 'text', 'text': date },
+                                    { 'type': 'text', 'text': time },
+                                    { 'type': 'text', 'text': projectName },
+                                ]
+                            }
                         ]
                     }
-                ]
+                };
+
+                const url = `https://graph.facebook.com/v18.0/${whatsappPhoneId}/messages`;
+                const headers = {
+                    'Authorization': `Bearer ${whatsappToken}`,
+                    'Content-Type': 'application/json'
+                };
+
+                const response = await axios.post(url, message_payload, { headers });
+                console.log('[sendApptNotification] Notification sent via WhatsApp from', platform);
+            } else {
+                console.error('[sendApptNotification] ⚠️ WHATSAPP_PHONE_ID not configured for', platform);
             }
-        };
+        }
 
-        const url = `https://graph.facebook.com/v18.0/${phone_no_id}/messages`;
-        const headers = {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json'
-        };
-
-        console.log('[sendApptNotification] Sending to salesman...', SALES_MAN);
-        const response = await axios.post(url, message_payload, { headers });
-
-        console.log('[sendApptNotification] Response:', response.data);
-        console.log("Salesman notified of the appointment scheduled.");
-
+        // Actualizar estado de appointment en users_threads.json
         try {
             const data = fs.readFileSync('users_threads.json');
             const usersThreads = JSON.parse(data);
@@ -188,7 +258,6 @@ async function addCustomerContactAndProjectToCRM(
         createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
 
-    // Bitrix requiere fields[PARAMETER] para timeline.comment.add
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
         commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
@@ -264,7 +333,7 @@ const getOrCreateThreadId = async (phoneNumber) => {
     }
 };
 
-const getAssistantResponse = async function (prompt, phone_no_id, token, recipientNumber) {
+const getAssistantResponse = async function (prompt, phone_no_id, token, recipientNumber, platform = 'whatsapp') {
     const thread = await getOrCreateThreadId(recipientNumber);
 
     const message = await openai.beta.threads.messages.create(
@@ -350,7 +419,8 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                         functionArguments.recipientName,
                                         functionArguments.date,
                                         functionArguments.time,
-                                        functionArguments.projectName
+                                        functionArguments.projectName,
+                                        platform
                                     );
                                 } else if (funcName === 'appendDealChatResumen') {
                                     output = await appendDealChatResumen(
@@ -416,7 +486,7 @@ function delay(ms) {
     });
 }
 
-// 🔥 NUEVA FUNCIÓN: Enviar mensaje a Messenger/Instagram
+// 🔥 Función para enviar mensaje a Messenger/Instagram
 async function sendMessageToFacebook(recipientId, message, pageToken) {
     try {
         const response = await axios({
@@ -448,7 +518,6 @@ app.post("/webhook", async (req, res) => {
 
         console.log(JSON.stringify(body_param, null, 2));
 
-        // Detectar la plataforma
         const object = body_param.object;
         
         // ========== WHATSAPP ==========
@@ -461,6 +530,14 @@ app.post("/webhook", async (req, res) => {
                 let phone_no_id = body_param.entry[0].changes[0].value.metadata.phone_number_id;
                 let from = body_param.entry[0].changes[0].value.messages[0].from;
                 let msg_body = body_param.entry[0].changes[0].value.messages[0].text.body;
+                let wamid = body_param.entry[0].changes[0].value.messages[0].id;
+
+                // 🔥 Deduplicación: verificar si ya procesamos este mensaje
+                if (processedMessages.has(wamid)) {
+                    console.log('[WhatsApp] ⚠️ Duplicate message detected, ignoring:', wamid);
+                    return res.sendStatus(200);
+                }
+                processedMessages.add(wamid);
 
                 console.log('[WhatsApp] Message received from:', from);
                 console.log('[WhatsApp] Message body:', msg_body);
@@ -474,7 +551,7 @@ app.post("/webhook", async (req, res) => {
                     }
                 } else {
                     console.log('[WhatsApp] Getting assistant response...');
-                    let assistantResponse = await getAssistantResponse(msg_body, phone_no_id, token, from);
+                    let assistantResponse = await getAssistantResponse(msg_body, phone_no_id, token, from, 'whatsapp');
 
                     console.log("[WhatsApp] Assistant response:", assistantResponse);
 
@@ -497,7 +574,9 @@ app.post("/webhook", async (req, res) => {
                     res.sendStatus(200);
                 }
             } else {
-                res.sendStatus(404);
+                // Webhook sin mensaje de texto (status updates, etc.)
+                console.log('[WhatsApp] Non-message webhook (status/delivery), ignoring');
+                res.sendStatus(200);
             }
         }
         // ========== MESSENGER / INSTAGRAM ==========
@@ -506,8 +585,8 @@ app.post("/webhook", async (req, res) => {
                 const messagingEvent = body_param.entry[0].messaging[0];
                 const senderId = messagingEvent.sender.id;
                 const messageText = messagingEvent.message ? messagingEvent.message.text : null;
+                const mid = messagingEvent.message ? messagingEvent.message.mid : null;
 
-                // Detectar si es Messenger o Instagram
                 const platform = object === "instagram" ? "Instagram" : "Messenger";
                 const pageToken = object === "instagram" ? INSTAGRAM_PAGE_TOKEN : MESSENGER_PAGE_TOKEN;
 
@@ -516,23 +595,31 @@ app.post("/webhook", async (req, res) => {
                     return res.sendStatus(500);
                 }
 
-                if (messageText) {
-                    console.log(`[${platform}] Message received from:`, senderId);
-                    console.log(`[${platform}] Message body:`, messageText);
-
-                    console.log(`[${platform}] Getting assistant response...`);
-                    let assistantResponse = await getAssistantResponse(messageText, null, pageToken, senderId);
-
-                    console.log(`[${platform}] Assistant response:`, assistantResponse);
-
-                    await sendMessageToFacebook(senderId, assistantResponse, pageToken);
-
-                    console.log(`[${platform}] Response sent to user`);
-                    res.sendStatus(200);
-                } else {
+                // Ignorar eventos sin texto (delivery, read receipts, etc.)
+                if (!messageText) {
                     console.log(`[${platform}] Received event without text message`);
-                    res.sendStatus(200);
+                    return res.sendStatus(200);
                 }
+
+                // 🔥 Deduplicación: verificar si ya procesamos este mensaje
+                if (processedMessages.has(mid)) {
+                    console.log(`[${platform}] ⚠️ Duplicate message detected, ignoring:`, mid);
+                    return res.sendStatus(200);
+                }
+                processedMessages.add(mid);
+
+                console.log(`[${platform}] Message received from:`, senderId);
+                console.log(`[${platform}] Message body:`, messageText);
+
+                console.log(`[${platform}] Getting assistant response...`);
+                let assistantResponse = await getAssistantResponse(messageText, null, pageToken, senderId, platform.toLowerCase());
+
+                console.log(`[${platform}] Assistant response:`, assistantResponse);
+
+                await sendMessageToFacebook(senderId, assistantResponse, pageToken);
+
+                console.log(`[${platform}] Response sent to user`);
+                res.sendStatus(200);
             } else {
                 res.sendStatus(404);
             }
