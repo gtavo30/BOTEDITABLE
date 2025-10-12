@@ -279,7 +279,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
         try {
             let runStatus;
             let attempts = 0;
-            const maxAttempts = 60; // 60 segundos máximo
+            const maxAttempts = 60;
             
             while (attempts < maxAttempts) {
                 attempts++;
@@ -319,7 +319,39 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                             console.log('Arguments:', JSON.stringify(functionArguments, null, 2));
                             
                             try {
-                                const output = await dispatchTable[funcName](phone_no_id, token, recipientNumber, ...Object.values(functionArguments));
+                                let output;
+                                
+                                // 🔥 FIX: Llamar funciones con parámetros explícitos
+                                if (funcName === 'addCustomerContactAndProjectToCRM') {
+                                    output = await addCustomerContactAndProjectToCRM(
+                                        phone_no_id,
+                                        token,
+                                        recipientNumber,
+                                        functionArguments.firstName,
+                                        functionArguments.lastName,
+                                        functionArguments.email || '',
+                                        functionArguments.projectName,
+                                        functionArguments.comments || '',
+                                        functionArguments.conversationHistory || []
+                                    );
+                                } else if (funcName === 'sendApptNotificationToSalesMan') {
+                                    output = await sendApptNotificationToSalesMan(
+                                        phone_no_id,
+                                        token,
+                                        recipientNumber,
+                                        functionArguments.recipientName,
+                                        functionArguments.date,
+                                        functionArguments.time,
+                                        functionArguments.projectName
+                                    );
+                                } else if (funcName === 'appendDealChatResumen') {
+                                    output = await appendDealChatResumen(
+                                        phone_no_id,
+                                        token,
+                                        recipientNumber,
+                                        ...Object.values(functionArguments)
+                                    );
+                                }
                                 
                                 console.log(`Function ${funcName} completed. Output:`, output);
                                 toolsOutput.push({ tool_call_id: action.id, output: JSON.stringify(output) });
@@ -352,7 +384,6 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                 await delay(1000);
             }
             
-            // Si llegamos aquí, excedimos el timeout
             if (attempts >= maxAttempts) {
                 console.error('⚠️ TIMEOUT: Run exceeded maximum attempts');
                 return "Lo siento, hubo un problema procesando tu solicitud. Por favor intenta de nuevo.";
