@@ -180,14 +180,14 @@ async function addCustomerContactAndProjectToCRM(
         createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
 
-    // 🔥 FIX: Usar formato correcto de Bitrix con camelCase
+    // 🔥 FIX: Bitrix requiere fields[PARAMETER] para timeline.comment.add
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
-        commands.addSummary = `crm.timeline.comment.add?entityId=$result[createDeal]&entityType=deal&comment=${encodeURIComponent(summaryText)}`;
+        commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
         console.log('[addCustomer] Adding summary with length:', summaryText.length);
     } else {
         const defaultNote = 'Lead registrado desde WhatsApp. Proyecto: ' + projectName;
-        commands.addNote = `crm.timeline.comment.add?entityId=$result[createDeal]&entityType=deal&comment=${encodeURIComponent(defaultNote)}`;
+        commands.addNote = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(defaultNote)}`;
     }
 
     const params = new URLSearchParams();
