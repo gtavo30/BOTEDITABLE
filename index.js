@@ -139,9 +139,27 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
     }
 };
 
-// ✅ CAMBIO 2: Función con BATCH para registro atómico
-async function addCustomerContactAndProjectToCRM(phone_no_id, token, recipientNumber, firstName, lastName, email, projectName) {
-    console.log('[addCustomer] Input:', { recipientNumber, firstName, lastName, email, projectName });
+// ✅ NUEVO: Función actualizada con soporte para conversationHistory
+async function addCustomerContactAndProjectToCRM(
+    phone_no_id, 
+    token, 
+    recipientNumber, 
+    firstName, 
+    lastName, 
+    email = '', 
+    projectName, 
+    comments = '',
+    conversationHistory = []
+) {
+    console.log('[addCustomer] Input:', { 
+        recipientNumber, 
+        firstName, 
+        lastName, 
+        email, 
+        projectName,
+        commentsLength: comments.length,
+        conversationLength: conversationHistory.length
+    });
     
     if (!BITRIX_WEBHOOK_BASE) {
         console.error('[addCustomer] BITRIX_WEBHOOK_BASE not set');
@@ -150,11 +168,29 @@ async function addCustomerContactAndProjectToCRM(phone_no_id, token, recipientNu
 
     const batchUrl = `${BITRIX_WEBHOOK_BASE.replace(/\/$/, '')}/batch.json`;
     
+    // Comandos base
     const commands = {
         createContact: `crm.contact.add?FIELDS[NAME]=${encodeURIComponent('')}&FIELDS[LAST_NAME]=${encodeURIComponent(firstName + ' ' + lastName)}&FIELDS[EMAIL][0][VALUE]=${encodeURIComponent(email)}&FIELDS[EMAIL][0][VALUE_TYPE]=WORK&FIELDS[PHONE][0][VALUE]=${encodeURIComponent(recipientNumber)}&FIELDS[PHONE][0][VALUE_TYPE]=WORK`,
-        createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`,
-        addNote: `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('Lead registrado desde WhatsApp. Proyecto: ' + projectName)}`
+        createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
+
+    // Agregar conversación completa al timeline (cada mensaje como entrada separada)
+    if (conversationHistory && conversationHistory.length > 0) {
+        conversationHistory.forEach((msg, index) => {
+            const sender = msg.sender === 'cliente' ? '👤 Cliente' : '🤖 Sofía';
+            const commentText = `[${msg.timestamp}] ${sender}: ${msg.message}`;
+            
+            commands[`addConvMsg${index}`] = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent(commentText)}`;
+        });
+    }
+
+    // Agregar resumen ejecutivo al final si existe
+    if (comments) {
+        commands.addSummary = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('📋 RESUMEN: ' + comments)}`;
+    } else {
+        // Nota por defecto si no hay resumen
+        commands.addNote = `crm.timeline.comment.add?ENTITY_ID=$result[createDeal]&ENTITY_TYPE=deal&COMMENT=${encodeURIComponent('Lead registrado desde WhatsApp. Proyecto: ' + projectName)}`;
+    }
 
     const params = new URLSearchParams();
     params.set('halt', '0');
@@ -177,6 +213,7 @@ async function addCustomerContactAndProjectToCRM(phone_no_id, token, recipientNu
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
             console.log('[addCustomer] Deal created with ID:', dealId);
+            console.log(`[addCustomer] Added ${conversationHistory.length} conversation messages to timeline`);
             return "The customer contact has been saved - don't tell the customer about that it's just for our backend";
         } else {
             console.error('[addCustomer] Batch error:', response.data);
