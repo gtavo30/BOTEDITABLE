@@ -339,7 +339,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
     // 🔥 Agregar contexto de plataforma para Messenger/Instagram
     let enhancedPrompt = prompt;
     if (platform === 'messenger' || platform === 'instagram') {
-        enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. Si necesitas agendar una cita, DEBES pedir su número de celular primero.]\n\n${prompt}`;
+        enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione (ejemplo: +593984679525). NO uses ningún otro identificador.]\n\n${prompt}`;
     }
 
     const message = await openai.beta.threads.messages.create(
@@ -406,10 +406,21 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                 let output;
                                 
                                 if (funcName === 'addCustomerContactAndProjectToCRM') {
+                                    // Para Messenger/Instagram, usar el número de teléfono del usuario si lo proporcionó
+                                    // En lugar del recipientNumber (que es el Facebook ID)
+                                    let phoneNumber = functionArguments.recipientNumber || recipientNumber;
+                                    
+                                    // Si es Messenger/Instagram y el número parece ser un Facebook ID, advertir
+                                    if ((platform === 'messenger' || platform === 'instagram') && phoneNumber === recipientNumber) {
+                                        console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
+                                        console.warn('⚠️ [addCustomer] RecipientNumber from function args:', functionArguments.recipientNumber);
+                                        console.warn('⚠️ [addCustomer] Default recipientNumber (Facebook ID):', recipientNumber);
+                                    }
+                                    
                                     output = await addCustomerContactAndProjectToCRM(
                                         phone_no_id,
                                         token,
-                                        recipientNumber,
+                                        phoneNumber,
                                         functionArguments.firstName,
                                         functionArguments.lastName,
                                         functionArguments.email || '',
@@ -418,10 +429,13 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                         functionArguments.conversationHistory || []
                                     );
                                 } else if (funcName === 'sendApptNotificationToSalesMan') {
+                                    // Para Messenger/Instagram, usar el número de teléfono que proporcionó el usuario
+                                    // En lugar del recipientNumber (que es el Facebook ID)
+                                    const phoneNumber = functionArguments.recipientNumber || recipientNumber;
                                     output = await sendApptNotificationToSalesMan(
                                         phone_no_id,
                                         token,
-                                        recipientNumber,
+                                        phoneNumber,
                                         functionArguments.recipientName,
                                         functionArguments.date,
                                         functionArguments.time,
