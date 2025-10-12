@@ -336,11 +336,17 @@ const getOrCreateThreadId = async (phoneNumber) => {
 const getAssistantResponse = async function (prompt, phone_no_id, token, recipientNumber, platform = 'whatsapp') {
     const thread = await getOrCreateThreadId(recipientNumber);
 
+    // 🔥 Agregar contexto de plataforma para Messenger/Instagram
+    let enhancedPrompt = prompt;
+    if (platform === 'messenger' || platform === 'instagram') {
+        enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. Si necesitas agendar una cita, DEBES pedir su número de celular primero.]\n\n${prompt}`;
+    }
+
     const message = await openai.beta.threads.messages.create(
         thread.id,
         {
             role: "user",
-            content: prompt
+            content: enhancedPrompt
         }
     );
 
