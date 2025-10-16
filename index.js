@@ -549,8 +549,17 @@ app.post("/webhook", async (req, res) => {
             ) {
                 let phone_no_id = body_param.entry[0].changes[0].value.metadata.phone_number_id;
                 let from = body_param.entry[0].changes[0].value.messages[0].from;
-                let msg_body = body_param.entry[0].changes[0].value.messages[0].text.body;
-                let wamid = body_param.entry[0].changes[0].value.messages[0].id;
+                let messageData = body_param.entry[0].changes[0].value.messages[0];
+                let messageType = messageData.type;
+                let wamid = messageData.id;
+                
+                // Solo procesar mensajes de texto
+                if (messageType !== 'text') {
+                    console.log(`[WhatsApp] Ignoring non-text message type: ${messageType}`);
+                    return res.sendStatus(200);
+                }
+                
+                let msg_body = messageData.text.body;
 
                 // 🔥 Deduplicación: verificar si ya procesamos este mensaje
                 if (processedMessages.has(wamid)) {
