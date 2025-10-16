@@ -107,6 +107,105 @@ const followUpFunction = async (phone_no_id, token) => {
     }
 };
 
+const sendCatalogFile = async (phone_no_id, token, recipientNumber, fileId, projectName, platform = 'whatsapp') => {
+    console.log('[sendCatalog] Starting...', { recipientNumber, projectName, fileId, platform });
+    
+    try {
+        if (!fileId || fileId === 'undefined') {
+            console.error('[sendCatalog] ❌ No fileId provided');
+            return `No se pudo encontrar el catálogo de ${projectName}. Por favor verifica el nombre del proyecto.`;
+        }
+        
+        console.log('[sendCatalog] Downloading file from OpenAI, File ID:', fileId);
+        
+        // Obtener el archivo de OpenAI
+        const fileContent = await openai.files.content(fileId);
+        const fileBuffer = Buffer.from(await fileContent.arrayBuffer());
+        
+        console.log('[sendCatalog] File downloaded, size:', fileBuffer.length, 'bytes');
+        
+        if (platform === 'whatsapp') {
+            // Para WhatsApp: primero subir el archivo a Facebook, luego enviarlo
+            const FormData = require('form-data');
+            const form = new FormData();
+            
+            const fileName = `Catalogo_${projectName.replace(/\s+/g, '_')}.pdf`;
+            
+            form.append('file', fileBuffer, {
+                filename: fileName,
+                contentType: 'application/pdf'
+            });
+            form.append('messaging_product', 'whatsapp');
+            
+            const uploadUrl = `https://graph.facebook.com/v18.0/${phone_no_id}/media`;
+            const uploadHeaders = {
+                'Authorization': `Bearer ${token}`,
+                ...form.getHeaders()
+            };
+            
+            console.log('[sendCatalog] Uploading file to WhatsApp...');
+            const uploadResponse = await axios.post(uploadUrl, form, { headers: uploadHeaders });
+            const mediaId = uploadResponse.data.id;
+            
+            console.log('[sendCatalog] File uploaded, media ID:', mediaId);
+            
+            // Paso 2: Enviar el documento
+            const sendUrl = `https://graph.facebook.com/v18.0/${phone_no_id}/messages`;
+            const sendData = {
+                messaging_product: 'whatsapp',
+                to: recipientNumber,
+                type: 'document',
+                document: {
+                    id: mediaId,
+                    caption: `📄 Catálogo ${projectName}`,
+                    filename: fileName
+                }
+            };
+            
+            console.log('[sendCatalog] Sending document to user...');
+            await axios.post(sendUrl, sendData, {
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            console.log('[sendCatalog] ✅ Catalog sent successfully via WhatsApp');
+            return `Catálogo de ${projectName} enviado exitosamente`;
+            
+        } else if (platform === 'messenger' || platform === 'instagram') {
+            // Para Messenger/Instagram, no se pueden enviar PDFs directamente
+            console.log('[sendCatalog] Platform does not support PDF files:', platform);
+            return `Por ${platform} no puedo enviarte el PDF directamente. ¿Me proporcionas tu email para enviártelo por correo? O puedes contactarnos por WhatsApp para recibirlo.`;
+        }
+        
+    } catch (error) {
+        console.error('[sendCatalog] Error:', error.message);
+        console.error('[sendCatalog] Stack:', error.stack);
+        if (error.response) {
+            console.error('[sendCatalog] Response data:', error.response.data);
+        }
+        return `Error enviando el catálogo de ${projectName}. Por favor intenta de nuevo.`;
+    }
+};
+
+// Mapeo de proyectos a File IDs de OpenAI
+const PROJECT_CATALOGS = {
+    'porto alegre': {
+        fileId: process.env.CATALOG_PORTO_ALEGRE_FILE_ID || 'file-xxx',
+        name: 'Catálogo Porto Alegre.pdf'
+    },
+    'bosques de armenia': {
+        fileId: process.env.CATALOG_BOSQUES_FILE_ID || 'file-xxx',
+        name: 'Catálogo Bosques de Armenia.pdf'
+    },
+    'terraverde': {
+        fileId: process.env.CATALOG_TERRAVERDE_FILE_ID || 'file-xxx',
+        name: 'Catálogo Terraverde.pdf'
+    }
+    // Agrega más proyectos aquí
+};
+
 const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
     console.log('[sendApptNotification] Starting...', { recipientName, recipientNumber, date, time, projectName, platform });
     
@@ -421,7 +520,8 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                     const dispatchTable = {
                         "addCustomerContactAndProjectToCRM": addCustomerContactAndProjectToCRM,
                         "sendApptNotificationToSalesMan": sendApptNotificationToSalesMan,
-                        "appendDealChatResumen": appendDealChatResumen
+                        "appendDealChatResumen": appendDealChatResumen,
+                        "sendCatalogFile": sendCatalogFile
                     };
 
                     let toolsOutput = [];
@@ -492,6 +592,14 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                         token,
                                         recipientNumber,
                                         ...Object.values(functionArguments)
+                                    );
+                                } else if (funcName === 'sendCatalogFile') {
+                                    output = await sendCatalogFile(
+                                        phone_no_id,
+                                        token,
+                                        recipientNumber,
+                                        functionArguments.projectName,
+                                        platform
                                     );
                                 }
                                 
