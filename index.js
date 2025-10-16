@@ -65,6 +65,12 @@ app.get("/webhook", (req, res) => {
 
 const followUpFunction = async (phone_no_id, token) => {
     try {
+        // Verificar que el archivo existe
+        if (!fs.existsSync('users_threads.json')) {
+            console.log('users_threads.json does not exist yet');
+            return;
+        }
+
         const data = fs.readFileSync('users_threads.json');
         const usersThreads = JSON.parse(data);
 
@@ -197,6 +203,11 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
 
         // Actualizar estado de appointment en users_threads.json
         try {
+            if (!fs.existsSync('users_threads.json')) {
+                console.log('users_threads.json does not exist yet');
+                return "Thank you for booking the appointment. We'll get back to you soon.";
+            }
+
             const data = fs.readFileSync('users_threads.json');
             const usersThreads = JSON.parse(data);
 
@@ -310,48 +321,69 @@ async function addCustomerContactAndProjectToCRM(
 
 const getOrCreateThreadId = async (phoneNumber) => {
     try {
-        let usersThreads;
+        let usersThreads = [];
+
+        // Crear archivo si no existe
+        if (!fs.existsSync('users_threads.json')) {
+            fs.writeFileSync('users_threads.json', JSON.stringify([], null, 2));
+            console.log('Created users_threads.json file');
+        }
 
         const data = fs.readFileSync('users_threads.json');
         usersThreads = JSON.parse(data);
 
         const existingThread = usersThreads.find(user => user['customer phone number'] === phoneNumber);
         if (existingThread) {
+            console.log('Found existing thread for:', phoneNumber);
             return existingThread['thread id'];
         }
 
-        const newThreadId = await openai.beta.threads.create();
+        // Crear nuevo thread
+        const newThread = await openai.beta.threads.create();
+        const newThreadId = newThread.id;
 
-        usersThreads.push({ 'customer phone number': phoneNumber, 'appointment_made': false, 'thread id': newThreadId });
+        usersThreads.push({ 
+            'customer phone number': phoneNumber, 
+            'appointment_made': false, 
+            'thread id': newThreadId 
+        });
 
         fs.writeFileSync('users_threads.json', JSON.stringify(usersThreads, null, 2));
+        console.log('Created new thread for:', phoneNumber, 'Thread ID:', newThreadId);
 
         return newThreadId;
     } catch (err) {
         console.error('Error in getOrCreateThreadId:', err.message);
+        console.error('Stack:', err.stack);
         return null;
     }
 };
 
 const getAssistantResponse = async function (prompt, phone_no_id, token, recipientNumber, platform = 'whatsapp') {
-    const thread = await getOrCreateThreadId(recipientNumber);
-
-    // 🔥 Agregar contexto de plataforma para Messenger/Instagram
-    let enhancedPrompt = prompt;
-    if (platform === 'messenger' || platform === 'instagram') {
-        enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione (ejemplo: +593984679525). NO uses ningún otro identificador.]\n\n${prompt}`;
-    }
-
-    const message = await openai.beta.threads.messages.create(
-        thread.id,
-        {
-            role: "user",
-            content: enhancedPrompt
+    try {
+        const thread = await getOrCreateThreadId(recipientNumber);
+        
+        if (!thread) {
+            console.error('Failed to get or create thread');
+            return "Lo siento, hubo un error al iniciar la conversación. Por favor intenta de nuevo.";
         }
-    );
+
+        // 🔥 Agregar contexto de plataforma para Messenger/Instagram
+        let enhancedPrompt = prompt;
+        if (platform === 'messenger' || platform === 'instagram') {
+            enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione (ejemplo: +593984679525). NO uses ningún otro identificador.]\n\n${prompt}`;
+        }
+
+        const message = await openai.beta.threads.messages.create(
+            thread.id,
+            {
+                role: "user",
+                content: enhancedPrompt
+            }
+        );
 
     const run = await openai.beta.threads.runs.create(
-        thread.id,
+        thread.id || thread,
         {
             assistant_id: assistantId,
         }
@@ -429,9 +461,21 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                         functionArguments.conversationHistory || []
                                     );
                                 } else if (funcName === 'sendApptNotificationToSalesMan') {
-                                    // Para Messenger/Instagram, usar el número de teléfono que proporcionó el usuario
-                                    // En lugar del recipientNumber (que es el Facebook ID)
-                                    const phoneNumber = functionArguments.recipientNumber || recipientNumber;
+                                    // Para WhatsApp: usar el número del remitente
+                                    // Para Messenger/Instagram: usar el número que proporcionó el usuario
+                                    let phoneNumber = functionArguments.recipientNumber;
+                                    
+                                    if (!phoneNumber || phoneNumber === recipientNumber) {
+                                        if (platform === 'whatsapp') {
+                                            // Para WhatsApp, usar el número del remitente
+                                            phoneNumber = recipientNumber;
+                                            console.log('[sendAppt] ✅ Using WhatsApp sender number:', phoneNumber);
+                                        } else {
+                                            console.warn('⚠️ [sendAppt] Missing phone number for Messenger/Instagram');
+                                            phoneNumber = recipientNumber;
+                                        }
+                                    }
+                                    
                                     output = await sendApptNotificationToSalesMan(
                                         phone_no_id,
                                         token,
@@ -483,7 +527,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
             }
             
             if (attempts >= maxAttempts) {
-                console.error('⚠️ TIMEOUT: Run exceeded maximum attempts');
+                console.error('⚠️ TIMEOUT: Run exceeded maximum attempts (2 minutes)');
                 return "Lo siento, hubo un problema procesando tu solicitud. Por favor intenta de nuevo.";
             }
 
@@ -497,7 +541,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
         }
     };
 
-    return await checkStatusAndPrintMessages(thread.id, run.id);
+    return await checkStatusAndPrintMessages(thread.id || thread, run.id);
 };
 
 function delay(ms) {
@@ -535,6 +579,12 @@ async function sendMessageToFacebook(recipientId, message, pageToken) {
 app.post("/webhook", async (req, res) => {
     try {
         let body_param = req.body;
+
+        // Validación básica
+        if (!body_param || !body_param.object) {
+            console.log('Invalid webhook payload');
+            return res.sendStatus(400);
+        }
 
         console.log(JSON.stringify(body_param, null, 2));
 
