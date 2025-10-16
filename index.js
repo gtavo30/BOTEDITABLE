@@ -494,7 +494,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
         try {
             let runStatus;
             let attempts = 0;
-            const maxAttempts = 60;
+            const maxAttempts = 120; // 2 minutos para conversaciones complejas
             
             while (attempts < maxAttempts) {
                 attempts++;
@@ -538,15 +538,23 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                 let output;
                                 
                                 if (funcName === 'addCustomerContactAndProjectToCRM') {
-                                    // Para Messenger/Instagram, usar el número de teléfono del usuario si lo proporcionó
-                                    // En lugar del recipientNumber (que es el Facebook ID)
-                                    let phoneNumber = functionArguments.recipientNumber || recipientNumber;
+                                    // Para WhatsApp: usar el número del remitente si no viene en los argumentos
+                                    // Para Messenger/Instagram: usar el número que proporcionó el cliente
+                                    let phoneNumber = functionArguments.recipientNumber;
                                     
-                                    // Si es Messenger/Instagram y el número parece ser un Facebook ID, advertir
-                                    if ((platform === 'messenger' || platform === 'instagram') && phoneNumber === recipientNumber) {
-                                        console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
-                                        console.warn('⚠️ [addCustomer] RecipientNumber from function args:', functionArguments.recipientNumber);
-                                        console.warn('⚠️ [addCustomer] Default recipientNumber (Facebook ID):', recipientNumber);
+                                    // Si no hay recipientNumber en los argumentos
+                                    if (!phoneNumber || phoneNumber === recipientNumber) {
+                                        if (platform === 'whatsapp') {
+                                            // Para WhatsApp, usar el número del remitente (from)
+                                            phoneNumber = recipientNumber;
+                                            console.log('[addCustomer] ✅ Using WhatsApp sender number:', phoneNumber);
+                                        } else {
+                                            // Para Messenger/Instagram, advertir que falta el número
+                                            console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
+                                            console.warn('⚠️ [addCustomer] RecipientNumber from function args:', functionArguments.recipientNumber);
+                                            console.warn('⚠️ [addCustomer] Default recipientNumber (Facebook ID):', recipientNumber);
+                                            phoneNumber = recipientNumber;
+                                        }
                                     }
                                     
                                     output = await addCustomerContactAndProjectToCRM(
@@ -598,6 +606,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                         phone_no_id,
                                         token,
                                         recipientNumber,
+                                        functionArguments.fileId,
                                         functionArguments.projectName,
                                         platform
                                     );
