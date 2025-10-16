@@ -30,6 +30,27 @@ const openai = new OpenAI({
     apiKey: apiKey,
 });
 
+// Validar variables de entorno críticas al inicio
+const requiredEnvVars = [
+    'OPENAI_API_KEY',
+    'ASSISTANT_ID',
+    'TOKEN',
+    'MYTOKEN',
+    'SALES_MAN',
+    'BITRIX_WEBHOOK_BASE'
+];
+
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+
+if (missingEnvVars.length > 0) {
+    console.error('❌ ERROR: Missing required environment variables:');
+    missingEnvVars.forEach(varName => console.error(`  - ${varName}`));
+    console.error('Please set these variables in your .env file or hosting platform');
+    process.exit(1);
+}
+
+console.log('✅ All required environment variables are set');
+
 // 🔥 CACHE para deduplicación de mensajes (en memoria)
 const processedMessages = new Set();
 const CACHE_CLEANUP_INTERVAL = 3600000; // 1 hora
@@ -189,23 +210,6 @@ const sendCatalogFile = async (phone_no_id, token, recipientNumber, fileId, proj
     }
 };
 
-// Mapeo de proyectos a File IDs de OpenAI
-const PROJECT_CATALOGS = {
-    'porto alegre': {
-        fileId: process.env.CATALOG_PORTO_ALEGRE_FILE_ID || 'file-xxx',
-        name: 'Catálogo Porto Alegre.pdf'
-    },
-    'bosques de armenia': {
-        fileId: process.env.CATALOG_BOSQUES_FILE_ID || 'file-xxx',
-        name: 'Catálogo Bosques de Armenia.pdf'
-    },
-    'terraverde': {
-        fileId: process.env.CATALOG_TERRAVERDE_FILE_ID || 'file-xxx',
-        name: 'Catálogo Terraverde.pdf'
-    }
-    // Agrega más proyectos aquí
-};
-
 const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
     console.log('[sendApptNotification] Starting...', { recipientName, recipientNumber, date, time, projectName, platform });
     
@@ -255,12 +259,6 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
             console.log('[sendApptNotification] Response:', response.data);
             console.log("Salesman notified of the appointment scheduled via WhatsApp.");
         } else if (platform === 'messenger' || platform === 'instagram') {
-            // Para Messenger/Instagram, enviamos notificación via WhatsApp al vendedor también
-            // usando el número de teléfono del cliente que él proporcionó
-            console.log('[sendApptNotification] Messenger/Instagram: Sending notification via WhatsApp to salesman');
-            
-            // Necesitamos usar el phone_no_id de WhatsApp (el de la empresa)
-            // Este debe estar configurado como variable de entorno
             const whatsappPhoneId = process.env.WHATSAPP_PHONE_ID || phone_no_id;
             const whatsappToken = process.env.TOKEN;
             
@@ -422,7 +420,6 @@ const getOrCreateThreadId = async (phoneNumber) => {
     try {
         let usersThreads = [];
 
-        // Crear archivo si no existe
         if (!fs.existsSync('users_threads.json')) {
             fs.writeFileSync('users_threads.json', JSON.stringify([], null, 2));
             console.log('Created users_threads.json file');
@@ -437,7 +434,6 @@ const getOrCreateThreadId = async (phoneNumber) => {
             return existingThread['thread id'];
         }
 
-        // Crear nuevo thread
         const newThread = await openai.beta.threads.create();
         const newThreadId = newThread.id;
 
@@ -467,7 +463,6 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
             return "Lo siento, hubo un error al iniciar la conversación. Por favor intenta de nuevo.";
         }
 
-        // 🔥 Agregar contexto de plataforma para Messenger/Instagram
         let enhancedPrompt = prompt;
         if (platform === 'messenger' || platform === 'instagram') {
             enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione (ejemplo: +593984679525). NO uses ningún otro identificador.]\n\n${prompt}`;
@@ -481,184 +476,179 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
             }
         );
 
-    const run = await openai.beta.threads.runs.create(
-        thread.id || thread,
-        {
-            assistant_id: assistantId,
-        }
-    );
+        const run = await openai.beta.threads.runs.create(
+            thread.id || thread,
+            {
+                assistant_id: assistantId,
+            }
+        );
 
-    console.log('Run ID:', run.id);
+        console.log('Run ID:', run.id);
 
-    const checkStatusAndPrintMessages = async (threadId, runId) => {
-        try {
-            let runStatus;
-            let attempts = 0;
-            const maxAttempts = 120; // 2 minutos para conversaciones complejas
-            
-            while (attempts < maxAttempts) {
-                attempts++;
+        const checkStatusAndPrintMessages = async (threadId, runId) => {
+            try {
+                let runStatus;
+                let attempts = 0;
+                const maxAttempts = 120;
                 
-                try {
-                    runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
-                } catch (error) {
-                    console.error('Error retrieving run status:', error.message);
-                    await delay(2000);
-                    continue;
-                }
-                
-                console.log(`[${attempts}/${maxAttempts}] Run status:`, runStatus.status);
-                
-                if (runStatus.status === "completed") {
-                    break;
-                } else if (runStatus.status === 'requires_action') {
-                    console.log("Requires action");
-
-                    const requiredActions = runStatus.required_action.submit_tool_outputs.tool_calls;
-                    console.log('Required actions:', JSON.stringify(requiredActions, null, 2));
-
-                    const dispatchTable = {
-                        "addCustomerContactAndProjectToCRM": addCustomerContactAndProjectToCRM,
-                        "sendApptNotificationToSalesMan": sendApptNotificationToSalesMan,
-                        "appendDealChatResumen": appendDealChatResumen,
-                        "sendCatalogFile": sendCatalogFile
-                    };
-
-                    let toolsOutput = [];
-
-                    for (const action of requiredActions) {
-                        const funcName = action.function.name;
-                        const functionArguments = JSON.parse(action.function.arguments);
-
-                        if (dispatchTable[funcName]) {
-                            console.log(`Executing function: ${funcName}`);
-                            console.log('Arguments:', JSON.stringify(functionArguments, null, 2));
-                            
-                            try {
-                                let output;
-                                
-                                if (funcName === 'addCustomerContactAndProjectToCRM') {
-                                    // Para WhatsApp: usar el número del remitente si no viene en los argumentos
-                                    // Para Messenger/Instagram: usar el número que proporcionó el cliente
-                                    let phoneNumber = functionArguments.recipientNumber;
-                                    
-                                    // Si no hay recipientNumber en los argumentos
-                                    if (!phoneNumber || phoneNumber === recipientNumber) {
-                                        if (platform === 'whatsapp') {
-                                            // Para WhatsApp, usar el número del remitente (from)
-                                            phoneNumber = recipientNumber;
-                                            console.log('[addCustomer] ✅ Using WhatsApp sender number:', phoneNumber);
-                                        } else {
-                                            // Para Messenger/Instagram, advertir que falta el número
-                                            console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
-                                            console.warn('⚠️ [addCustomer] RecipientNumber from function args:', functionArguments.recipientNumber);
-                                            console.warn('⚠️ [addCustomer] Default recipientNumber (Facebook ID):', recipientNumber);
-                                            phoneNumber = recipientNumber;
-                                        }
-                                    }
-                                    
-                                    output = await addCustomerContactAndProjectToCRM(
-                                        phone_no_id,
-                                        token,
-                                        phoneNumber,
-                                        functionArguments.firstName,
-                                        functionArguments.lastName,
-                                        functionArguments.email || '',
-                                        functionArguments.projectName,
-                                        functionArguments.comments || '',
-                                        functionArguments.conversationHistory || []
-                                    );
-                                } else if (funcName === 'sendApptNotificationToSalesMan') {
-                                    // Para WhatsApp: usar el número del remitente
-                                    // Para Messenger/Instagram: usar el número que proporcionó el usuario
-                                    let phoneNumber = functionArguments.recipientNumber;
-                                    
-                                    if (!phoneNumber || phoneNumber === recipientNumber) {
-                                        if (platform === 'whatsapp') {
-                                            // Para WhatsApp, usar el número del remitente
-                                            phoneNumber = recipientNumber;
-                                            console.log('[sendAppt] ✅ Using WhatsApp sender number:', phoneNumber);
-                                        } else {
-                                            console.warn('⚠️ [sendAppt] Missing phone number for Messenger/Instagram');
-                                            phoneNumber = recipientNumber;
-                                        }
-                                    }
-                                    
-                                    output = await sendApptNotificationToSalesMan(
-                                        phone_no_id,
-                                        token,
-                                        phoneNumber,
-                                        functionArguments.recipientName,
-                                        functionArguments.date,
-                                        functionArguments.time,
-                                        functionArguments.projectName,
-                                        platform
-                                    );
-                                } else if (funcName === 'appendDealChatResumen') {
-                                    output = await appendDealChatResumen(
-                                        phone_no_id,
-                                        token,
-                                        recipientNumber,
-                                        ...Object.values(functionArguments)
-                                    );
-                                } else if (funcName === 'sendCatalogFile') {
-                                    output = await sendCatalogFile(
-                                        phone_no_id,
-                                        token,
-                                        recipientNumber,
-                                        functionArguments.fileId,
-                                        functionArguments.projectName,
-                                        platform
-                                    );
-                                }
-                                
-                                console.log(`Function ${funcName} completed. Output:`, output);
-                                toolsOutput.push({ tool_call_id: action.id, output: JSON.stringify(output) });
-                            } catch (error) {
-                                console.error(`Error executing function ${funcName}:`, error.message);
-                                console.error('Stack:', error.stack);
-                                toolsOutput.push({ 
-                                    tool_call_id: action.id, 
-                                    output: JSON.stringify({ error: error.message }) 
-                                });
-                            }
-                        } else {
-                            console.log("Function not found:", funcName);
-                        }
+                while (attempts < maxAttempts) {
+                    attempts++;
+                    
+                    try {
+                        runStatus = await openai.beta.threads.runs.retrieve(threadId, runId);
+                    } catch (error) {
+                        console.error('Error retrieving run status:', error.message);
+                        await delay(2000);
+                        continue;
                     }
+                    
+                    console.log(`[${attempts}/${maxAttempts}] Run status:`, runStatus.status);
+                    
+                    if (runStatus.status === "completed") {
+                        break;
+                    } else if (runStatus.status === 'requires_action') {
+                        console.log("Requires action");
 
-                    console.log('Submitting tool outputs...');
-                    await openai.beta.threads.runs.submitToolOutputs(
-                        thread.id,
-                        run.id,
-                        { tool_outputs: toolsOutput }
-                    );
-                    console.log('Tool outputs submitted successfully');
-                } else if (runStatus.status === 'failed') {
-                    console.error('Run failed:', runStatus.last_error);
-                    return "Lo siento, hubo un error procesando tu solicitud.";
+                        const requiredActions = runStatus.required_action.submit_tool_outputs.tool_calls;
+                        console.log('Required actions:', JSON.stringify(requiredActions, null, 2));
+
+                        const dispatchTable = {
+                            "addCustomerContactAndProjectToCRM": addCustomerContactAndProjectToCRM,
+                            "sendApptNotificationToSalesMan": sendApptNotificationToSalesMan,
+                            "appendDealChatResumen": appendDealChatResumen,
+                            "sendCatalogFile": sendCatalogFile
+                        };
+
+                        let toolsOutput = [];
+
+                        for (const action of requiredActions) {
+                            const funcName = action.function.name;
+                            const functionArguments = JSON.parse(action.function.arguments);
+
+                            if (dispatchTable[funcName]) {
+                                console.log(`Executing function: ${funcName}`);
+                                console.log('Arguments:', JSON.stringify(functionArguments, null, 2));
+                                
+                                try {
+                                    let output;
+                                    
+                                    if (funcName === 'addCustomerContactAndProjectToCRM') {
+                                        let phoneNumber = functionArguments.recipientNumber;
+                                        
+                                        if (!phoneNumber || phoneNumber === recipientNumber) {
+                                            if (platform === 'whatsapp') {
+                                                phoneNumber = recipientNumber;
+                                                console.log('[addCustomer] ✅ Using WhatsApp sender number:', phoneNumber);
+                                            } else {
+                                                console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
+                                                phoneNumber = recipientNumber;
+                                            }
+                                        }
+                                        
+                                        output = await addCustomerContactAndProjectToCRM(
+                                            phone_no_id,
+                                            token,
+                                            phoneNumber,
+                                            functionArguments.firstName,
+                                            functionArguments.lastName,
+                                            functionArguments.email || '',
+                                            functionArguments.projectName,
+                                            functionArguments.comments || '',
+                                            functionArguments.conversationHistory || []
+                                        );
+                                    } else if (funcName === 'sendApptNotificationToSalesMan') {
+                                        let phoneNumber = functionArguments.recipientNumber;
+                                        
+                                        if (!phoneNumber || phoneNumber === recipientNumber) {
+                                            if (platform === 'whatsapp') {
+                                                phoneNumber = recipientNumber;
+                                                console.log('[sendAppt] ✅ Using WhatsApp sender number:', phoneNumber);
+                                            } else {
+                                                console.warn('⚠️ [sendAppt] Missing phone number for Messenger/Instagram');
+                                                phoneNumber = recipientNumber;
+                                            }
+                                        }
+                                        
+                                        output = await sendApptNotificationToSalesMan(
+                                            phone_no_id,
+                                            token,
+                                            phoneNumber,
+                                            functionArguments.recipientName,
+                                            functionArguments.date,
+                                            functionArguments.time,
+                                            functionArguments.projectName,
+                                            platform
+                                        );
+                                    } else if (funcName === 'appendDealChatResumen') {
+                                        output = await appendDealChatResumen(
+                                            phone_no_id,
+                                            token,
+                                            recipientNumber,
+                                            ...Object.values(functionArguments)
+                                        );
+                                    } else if (funcName === 'sendCatalogFile') {
+                                        output = await sendCatalogFile(
+                                            phone_no_id,
+                                            token,
+                                            recipientNumber,
+                                            functionArguments.fileId,
+                                            functionArguments.projectName,
+                                            platform
+                                        );
+                                    }
+                                    
+                                    console.log(`Function ${funcName} completed. Output:`, output);
+                                    toolsOutput.push({ tool_call_id: action.id, output: JSON.stringify(output) });
+                                } catch (error) {
+                                    console.error(`Error executing function ${funcName}:`, error.message);
+                                    console.error('Stack:', error.stack);
+                                    toolsOutput.push({ 
+                                        tool_call_id: action.id, 
+                                        output: JSON.stringify({ error: error.message }) 
+                                    });
+                                }
+                            } else {
+                                console.log("Function not found:", funcName);
+                            }
+                        }
+
+                        console.log('Submitting tool outputs...');
+                        await openai.beta.threads.runs.submitToolOutputs(
+                            thread.id,
+                            run.id,
+                            { tool_outputs: toolsOutput }
+                        );
+                        console.log('Tool outputs submitted successfully');
+                    } else if (runStatus.status === 'failed') {
+                        console.error('Run failed:', runStatus.last_error);
+                        return "Lo siento, hubo un error procesando tu solicitud.";
+                    }
+                    
+                    console.log("Run is not completed yet, waiting...");
+                    await delay(1000);
                 }
                 
-                console.log("Run is not completed yet, waiting...");
-                await delay(1000);
-            }
-            
-            if (attempts >= maxAttempts) {
-                console.error('⚠️ TIMEOUT: Run exceeded maximum attempts (2 minutes)');
-                return "Lo siento, hubo un problema procesando tu solicitud. Por favor intenta de nuevo.";
-            }
+                if (attempts >= maxAttempts) {
+                    console.error('⚠️ TIMEOUT: Run exceeded maximum attempts (2 minutes)');
+                    return "Lo siento, hubo un problema procesando tu solicitud. Por favor intenta de nuevo.";
+                }
 
-            let messages = await openai.beta.threads.messages.list(threadId);
-            console.log("Final messages retrieved, count:", messages.data.length);
-            return messages.data[0].content[0].text.value;
-        } catch (error) {
-            console.error('Error in checkStatusAndPrintMessages:', error.message);
-            console.error('Stack:', error.stack);
-            return "Lo siento, hubo un error. Por favor intenta de nuevo.";
-        }
-    };
+                let messages = await openai.beta.threads.messages.list(threadId);
+                console.log("Final messages retrieved, count:", messages.data.length);
+                return messages.data[0].content[0].text.value;
+            } catch (error) {
+                console.error('Error in checkStatusAndPrintMessages:', error.message);
+                console.error('Stack:', error.stack);
+                return "Lo siento, hubo un error. Por favor intenta de nuevo.";
+            }
+        };
 
-    return await checkStatusAndPrintMessages(thread.id || thread, run.id);
+        return await checkStatusAndPrintMessages(thread.id || thread, run.id);
+    } catch (error) {
+        console.error('Error in getAssistantResponse:', error.message);
+        console.error('Stack:', error.stack);
+        return "Lo siento, hubo un error. Por favor intenta de nuevo.";
+    }
 };
 
 function delay(ms) {
@@ -667,7 +657,6 @@ function delay(ms) {
     });
 }
 
-// 🔥 Función para enviar mensaje a Messenger/Instagram
 async function sendMessageToFacebook(recipientId, message, pageToken) {
     try {
         const response = await axios({
@@ -692,12 +681,10 @@ async function sendMessageToFacebook(recipientId, message, pageToken) {
     }
 }
 
-// 🔥 WEBHOOK PRINCIPAL - Maneja WhatsApp, Messenger e Instagram
 app.post("/webhook", async (req, res) => {
     try {
         let body_param = req.body;
 
-        // Validación básica
         if (!body_param || !body_param.object) {
             console.log('Invalid webhook payload');
             return res.sendStatus(400);
@@ -707,7 +694,6 @@ app.post("/webhook", async (req, res) => {
 
         const object = body_param.object;
         
-        // ========== WHATSAPP ==========
         if (object === "whatsapp_business_account") {
             if (body_param.entry &&
                 body_param.entry[0].changes &&
@@ -720,7 +706,6 @@ app.post("/webhook", async (req, res) => {
                 let messageType = messageData.type;
                 let wamid = messageData.id;
                 
-                // Solo procesar mensajes de texto
                 if (messageType !== 'text') {
                     console.log(`[WhatsApp] Ignoring non-text message type: ${messageType}`);
                     return res.sendStatus(200);
@@ -728,7 +713,6 @@ app.post("/webhook", async (req, res) => {
                 
                 let msg_body = messageData.text.body;
 
-                // 🔥 Deduplicación: verificar si ya procesamos este mensaje
                 if (processedMessages.has(wamid)) {
                     console.log('[WhatsApp] ⚠️ Duplicate message detected, ignoring:', wamid);
                     return res.sendStatus(200);
@@ -770,12 +754,10 @@ app.post("/webhook", async (req, res) => {
                     res.sendStatus(200);
                 }
             } else {
-                // Webhook sin mensaje de texto (status updates, etc.)
                 console.log('[WhatsApp] Non-message webhook (status/delivery), ignoring');
                 res.sendStatus(200);
             }
         }
-        // ========== MESSENGER / INSTAGRAM ==========
         else if (object === "page" || object === "instagram") {
             if (body_param.entry && body_param.entry[0].messaging && body_param.entry[0].messaging[0]) {
                 const messagingEvent = body_param.entry[0].messaging[0];
@@ -791,13 +773,11 @@ app.post("/webhook", async (req, res) => {
                     return res.sendStatus(500);
                 }
 
-                // Ignorar eventos sin texto (delivery, read receipts, etc.)
                 if (!messageText) {
                     console.log(`[${platform}] Received event without text message`);
                     return res.sendStatus(200);
                 }
 
-                // 🔥 Deduplicación: verificar si ya procesamos este mensaje
                 if (processedMessages.has(mid)) {
                     console.log(`[${platform}] ⚠️ Duplicate message detected, ignoring:`, mid);
                     return res.sendStatus(200);
