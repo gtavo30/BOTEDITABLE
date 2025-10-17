@@ -107,46 +107,7 @@ const followUpFunction = async (phone_no_id, token) => {
     }
 };
 
-const sendCatalogFile = async (phone_no_id, token, recipientNumber, fileId, projectName, platform = 'whatsapp') => {
-    console.log('[sendCatalog] Starting...', { recipientNumber, projectName, fileId, platform });
-    
-    try {
-        if (!fileId || fileId === 'undefined') {
-            console.error('[sendCatalog] ❌ No fileId provided');
-            return `No se pudo encontrar el catálogo de ${projectName}. Por favor verifica el nombre del proyecto.`;
-        }
-        
-        console.log('[sendCatalog] Downloading file from OpenAI, File ID:', fileId);
-        
-        const fileContent = await openai.files.content(fileId);
-        const fileBuffer = Buffer.from(await fileContent.arrayBuffer());
-        
-        console.log('[sendCatalog] File downloaded, size:', fileBuffer.length, 'bytes');
-        
-        if (platform === 'whatsapp') {
-            const FormData = require('form-data');
-            const form = new FormData();
-            
-            const fileName = `Catalogo_${projectName.replace(/\s+/g, '_')}.pdf`;
-            
-            form.append('file', fileBuffer, {
-                filename: fileName,
-                contentType: 'application/pdf'
-            });
-            form.append('messaging_product', 'whatsapp');
-            
-            const uploadUrl = `https://graph.facebook.com/v18.0/${phone_no_id}/media`;
-            const uploadHeaders = {
-                'Authorization': `Bearer ${token}`,
-                ...form.getHeaders()
-            };
-            
-            console.log('[sendCatalog] Uploading file to WhatsApp...');
-            const uploadResponse = await axios.post(uploadUrl, form, { headers: uploadHeaders });
-            const mediaId = uploadResponse.data.id;
-            
-            console.log('[sendCatalog] File uploaded, media ID:', mediaId);
-            
+
             const sendUrl = `https://graph.facebook.com/v18.0/${phone_no_id}/messages`;
             const sendData = {
                 messaging_product: 'whatsapp',
