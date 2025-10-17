@@ -30,27 +30,6 @@ const openai = new OpenAI({
     apiKey: apiKey,
 });
 
-// Validar variables de entorno críticas al inicio
-const requiredEnvVars = [
-    'OPENAI_API_KEY',
-    'ASSISTANT_ID',
-    'TOKEN',
-    'MYTOKEN',
-    'SALES_MAN',
-    'BITRIX_WEBHOOK_BASE'
-];
-
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-
-if (missingEnvVars.length > 0) {
-    console.error('❌ ERROR: Missing required environment variables:');
-    missingEnvVars.forEach(varName => console.error(`  - ${varName}`));
-    console.error('Please set these variables in your .env file or hosting platform');
-    process.exit(1);
-}
-
-console.log('✅ All required environment variables are set');
-
 // 🔥 CACHE para deduplicación de mensajes (en memoria)
 const processedMessages = new Set();
 const CACHE_CLEANUP_INTERVAL = 3600000; // 1 hora
@@ -139,14 +118,12 @@ const sendCatalogFile = async (phone_no_id, token, recipientNumber, fileId, proj
         
         console.log('[sendCatalog] Downloading file from OpenAI, File ID:', fileId);
         
-        // Obtener el archivo de OpenAI
         const fileContent = await openai.files.content(fileId);
         const fileBuffer = Buffer.from(await fileContent.arrayBuffer());
         
         console.log('[sendCatalog] File downloaded, size:', fileBuffer.length, 'bytes');
         
         if (platform === 'whatsapp') {
-            // Para WhatsApp: primero subir el archivo a Facebook, luego enviarlo
             const FormData = require('form-data');
             const form = new FormData();
             
@@ -170,7 +147,6 @@ const sendCatalogFile = async (phone_no_id, token, recipientNumber, fileId, proj
             
             console.log('[sendCatalog] File uploaded, media ID:', mediaId);
             
-            // Paso 2: Enviar el documento
             const sendUrl = `https://graph.facebook.com/v18.0/${phone_no_id}/messages`;
             const sendData = {
                 messaging_product: 'whatsapp',
@@ -195,7 +171,6 @@ const sendCatalogFile = async (phone_no_id, token, recipientNumber, fileId, proj
             return `Catálogo de ${projectName} enviado exitosamente`;
             
         } else if (platform === 'messenger' || platform === 'instagram') {
-            // Para Messenger/Instagram, no se pueden enviar PDFs directamente
             console.log('[sendCatalog] Platform does not support PDF files:', platform);
             return `Por ${platform} no puedo enviarte el PDF directamente. ¿Me proporcionas tu email para enviártelo por correo? O puedes contactarnos por WhatsApp para recibirlo.`;
         }
@@ -259,6 +234,8 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
             console.log('[sendApptNotification] Response:', response.data);
             console.log("Salesman notified of the appointment scheduled via WhatsApp.");
         } else if (platform === 'messenger' || platform === 'instagram') {
+            console.log('[sendApptNotification] Messenger/Instagram: Sending notification via WhatsApp to salesman');
+            
             const whatsappPhoneId = process.env.WHATSAPP_PHONE_ID || phone_no_id;
             const whatsappToken = process.env.TOKEN;
             
@@ -537,16 +514,12 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                     let output;
                                     
                                     if (funcName === 'addCustomerContactAndProjectToCRM') {
-                                        let phoneNumber = functionArguments.recipientNumber;
+                                        let phoneNumber = functionArguments.recipientNumber || recipientNumber;
                                         
-                                        if (!phoneNumber || phoneNumber === recipientNumber) {
-                                            if (platform === 'whatsapp') {
-                                                phoneNumber = recipientNumber;
-                                                console.log('[addCustomer] ✅ Using WhatsApp sender number:', phoneNumber);
-                                            } else {
-                                                console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
-                                                phoneNumber = recipientNumber;
-                                            }
+                                        if ((platform === 'messenger' || platform === 'instagram') && phoneNumber === recipientNumber) {
+                                            console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
+                                            console.warn('⚠️ [addCustomer] RecipientNumber from function args:', functionArguments.recipientNumber);
+                                            console.warn('⚠️ [addCustomer] Default recipientNumber (Facebook ID):', recipientNumber);
                                         }
                                         
                                         output = await addCustomerContactAndProjectToCRM(
@@ -718,4 +691,107 @@ app.post("/webhook", async (req, res) => {
                 let msg_body = messageData.text.body;
 
                 if (processedMessages.has(wamid)) {
-                    console.log('[WhatsApp]
+                    console.log('[WhatsApp] ⚠️ Duplicate message detected, ignoring:', wamid);
+                    return res.sendStatus(200);
+                }
+                processedMessages.add(wamid);
+
+                console.log('[WhatsApp] Message received from:', from);
+                console.log('[WhatsApp] Message body:', msg_body);
+
+                if (from == FOLLOWUP_MESSAGES_TRIGGER_NUMBER) {
+                    if (msg_body == FOLLOWUP_MESSAGES_TRIGGER_COMMAND) {
+                        const followUpFunctionResponse = await followUpFunction(phone_no_id, token);
+                        console.log(followUpFunctionResponse);
+                    } else {
+                        console.log(`Please select the right command to trigger the follow-up: "${FOLLOWUP_MESSAGES_TRIGGER_COMMAND}"`);
+                    }
+                } else {
+                    console.log('[WhatsApp] Getting assistant response...');
+                    let assistantResponse = await getAssistantResponse(msg_body, phone_no_id, token, from, 'whatsapp');
+
+                    console.log("[WhatsApp] Assistant response:", assistantResponse);
+
+                    await axios({
+                        method: "POST",
+                        url: "https://graph.facebook.com/v13.0/" + phone_no_id + "/messages?access_token=" + token,
+                        data: {
+                            messaging_product: "whatsapp",
+                            to: from,
+                            text: {
+                                body: assistantResponse
+                            }
+                        },
+                        headers: {
+                            "Content-Type": "application/json"
+                        }
+                    });
+
+                    console.log('[WhatsApp] Response sent to user');
+                    res.sendStatus(200);
+                }
+            } else {
+                console.log('[WhatsApp] Non-message webhook (status/delivery), ignoring');
+                res.sendStatus(200);
+            }
+        }
+        else if (object === "page" || object === "instagram") {
+            if (body_param.entry && body_param.entry[0].messaging && body_param.entry[0].messaging[0]) {
+                const messagingEvent = body_param.entry[0].messaging[0];
+                const senderId = messagingEvent.sender.id;
+                const messageText = messagingEvent.message ? messagingEvent.message.text : null;
+                const mid = messagingEvent.message ? messagingEvent.message.mid : null;
+
+                const platform = object === "instagram" ? "Instagram" : "Messenger";
+                const pageToken = object === "instagram" ? INSTAGRAM_PAGE_TOKEN : MESSENGER_PAGE_TOKEN;
+
+                if (!pageToken) {
+                    console.error(`[${platform}] Token not configured`);
+                    return res.sendStatus(500);
+                }
+
+                if (!messageText) {
+                    console.log(`[${platform}] Received event without text message`);
+                    return res.sendStatus(200);
+                }
+
+                if (processedMessages.has(mid)) {
+                    console.log(`[${platform}] ⚠️ Duplicate message detected, ignoring:`, mid);
+                    return res.sendStatus(200);
+                }
+                processedMessages.add(mid);
+
+                console.log(`[${platform}] Message received from:`, senderId);
+                console.log(`[${platform}] Message body:`, messageText);
+
+                console.log(`[${platform}] Getting assistant response...`);
+                let assistantResponse = await getAssistantResponse(messageText, null, pageToken, senderId, platform.toLowerCase());
+
+                console.log(`[${platform}] Assistant response:`, assistantResponse);
+
+                await sendMessageToFacebook(senderId, assistantResponse, pageToken);
+
+                console.log(`[${platform}] Response sent to user`);
+                res.sendStatus(200);
+            } else {
+                res.sendStatus(404);
+            }
+        }
+        else {
+            console.log('Unknown webhook object:', object);
+            res.sendStatus(404);
+        }
+    } catch (error) {
+        console.error('Error in webhook processing:', error);
+        console.error('Stack:', error.stack);
+        res.sendStatus(500);
+    }
+});
+
+app.get("/", (req, res) => {
+    res.status(200).send("hello bro");
+});
+
+app.get('/healthz', (_req, res) => {
+    res.status(200).json({ ok: true, uptime: process.uptime() });
+});
