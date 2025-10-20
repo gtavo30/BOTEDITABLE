@@ -457,8 +457,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                         const dispatchTable = {
                             "addCustomerContactAndProjectToCRM": addCustomerContactAndProjectToCRM,
                             "sendApptNotificationToSalesMan": sendApptNotificationToSalesMan,
-                            "appendDealChatResumen": appendDealChatResumen,
-                            "sendCatalogFile": sendCatalogFile
+                            "appendDealChatResumen": appendDealChatResumen
                         };
 
                         let toolsOutput = [];
@@ -497,41 +496,29 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
                                     } else if (funcName === 'sendApptNotificationToSalesMan') {
                                         let phoneNumber = functionArguments.recipientNumber;
                                         
-                                        if (!phoneNumber || phoneNumber === recipientNumber) {
-                                            if (platform === 'whatsapp') {
-                                                phoneNumber = recipientNumber;
-                                                console.log('[sendAppt] ✅ Using WhatsApp sender number:', phoneNumber);
-                                            } else {
-                                                console.warn('⚠️ [sendAppt] Missing phone number for Messenger/Instagram');
-                                                phoneNumber = recipientNumber;
-                                            }
+                                        if (!phoneNumber) {
+                                            console.error('⚠️ [sendAppt] recipientNumber not provided by Assistant');
+                                            output = "Error: No se proporcionó el número de teléfono del cliente. Por favor pide al cliente su número de celular.";
+                                        } else {
+                                            console.log('[sendAppt] ✅ Using phone number from Assistant:', phoneNumber);
+                                            
+                                            output = await sendApptNotificationToSalesMan(
+                                                phone_no_id,
+                                                token,
+                                                phoneNumber,
+                                                functionArguments.recipientName,
+                                                functionArguments.date,
+                                                functionArguments.time,
+                                                functionArguments.projectName,
+                                                platform
+                                            );
                                         }
-                                        
-                                        output = await sendApptNotificationToSalesMan(
-                                            phone_no_id,
-                                            token,
-                                            phoneNumber,
-                                            functionArguments.recipientName,
-                                            functionArguments.date,
-                                            functionArguments.time,
-                                            functionArguments.projectName,
-                                            platform
-                                        );
                                     } else if (funcName === 'appendDealChatResumen') {
                                         output = await appendDealChatResumen(
                                             phone_no_id,
                                             token,
                                             recipientNumber,
                                             ...Object.values(functionArguments)
-                                        );
-                                    } else if (funcName === 'sendCatalogFile') {
-                                        output = await sendCatalogFile(
-                                            phone_no_id,
-                                            token,
-                                            recipientNumber,
-                                            functionArguments.fileId,
-                                            functionArguments.projectName,
-                                            platform
                                         );
                                     }
                                     
