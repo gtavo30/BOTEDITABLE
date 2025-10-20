@@ -107,45 +107,6 @@ const followUpFunction = async (phone_no_id, token) => {
     }
 };
 
-
-            const sendUrl = `https://graph.facebook.com/v18.0/${phone_no_id}/messages`;
-            const sendData = {
-                messaging_product: 'whatsapp',
-                to: recipientNumber,
-                type: 'document',
-                document: {
-                    id: mediaId,
-                    caption: `📄 Catálogo ${projectName}`,
-                    filename: fileName
-                }
-            };
-            
-            console.log('[sendCatalog] Sending document to user...');
-            await axios.post(sendUrl, sendData, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            
-            console.log('[sendCatalog] ✅ Catalog sent successfully via WhatsApp');
-            return `Catálogo de ${projectName} enviado exitosamente`;
-            
-        } else if (platform === 'messenger' || platform === 'instagram') {
-            console.log('[sendCatalog] Platform does not support PDF files:', platform);
-            return `Por ${platform} no puedo enviarte el PDF directamente. ¿Me proporcionas tu email para enviártelo por correo? O puedes contactarnos por WhatsApp para recibirlo.`;
-        }
-        
-    } catch (error) {
-        console.error('[sendCatalog] Error:', error.message);
-        console.error('[sendCatalog] Stack:', error.stack);
-        if (error.response) {
-            console.error('[sendCatalog] Response data:', error.response.data);
-        }
-        return `Error enviando el catálogo de ${projectName}. Por favor intenta de nuevo.`;
-    }
-};
-
 const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
     console.log('[sendApptNotification] Starting...', { recipientName, recipientNumber, date, time, projectName, platform });
     
