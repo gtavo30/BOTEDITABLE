@@ -39,9 +39,13 @@ const CACHE_MAX_SIZE = 10000;
 // 🔥 NUEVO: Sistema de colas por usuario
 const userQueues = new Map();
 const userLocks = new Map(); // Para evitar race conditions en la creación de threads
+const userTimers = new Map(); // Para manejar el debounce de 30 segundos
 
 // 🔥 NUEVO: Cache de threads en memoria (se carga al inicio)
 const threadCache = new Map();
+
+// Configuración de debounce
+const DEBOUNCE_TIME = 20000; // 20 segundos en milisegundos
 
 // Limpiar cache periódicamente
 setInterval(() => {
@@ -121,7 +125,7 @@ function initializeQueue(userId) {
     }
 }
 
-// 🔥 NUEVO: Procesar cola de mensajes
+// 🔥 NUEVO: Procesar cola de mensajes (con debounce - combina múltiples mensajes)
 async function processMessageQueue(userId, phone_no_id, token, platform = 'whatsapp') {
     const queue = userQueues.get(userId);
     
@@ -135,28 +139,63 @@ async function processMessageQueue(userId, phone_no_id, token, platform = 'whats
         return;
     }
     
+    // Verificar si hay mensajes en la cola
+    if (queue.messages.length === 0) {
+        console.log(`📭 No messages in queue for ${userId}`);
+        return;
+    }
+    
     queue.processing = true;
     queue.lastActivity = Date.now();
     
-    console.log(`🔄 Processing queue for ${userId}, ${queue.messages.length} messages pending`);
+    console.log(`🔄 Processing ${queue.messages.length} messages for ${userId}`);
     
-    while (queue.messages.length > 0) {
-        const message = queue.messages.shift();
+    try {
+        // 🔥 NUEVO: Combinar todos los mensajes en la cola en uno solo
+        const allMessages = queue.messages.map(m => m.text);
+        const combinedMessage = allMessages.join('\n\n');
         
+        console.log(`📨 Combined message from ${userId}:\n"${combinedMessage}"`);
+        console.log(`📊 Total messages combined: ${allMessages.length}`);
+        
+        // Limpiar la cola
+        queue.messages = [];
+        
+        // Procesar el mensaje combinado
+        const assistantResponse = await getAssistantResponse(
+            combinedMessage,
+            phone_no_id,
+            token,
+            userId,
+            platform
+        );
+        
+        console.log(`🤖 Assistant response for ${userId}:`, assistantResponse);
+        
+        // Enviar respuesta según la plataforma
+        if (platform === 'whatsapp') {
+            await axios({
+                method: "POST",
+                url: `https://graph.facebook.com/v13.0/${phone_no_id}/messages?access_token=${token}`,
+                data: {
+                    messaging_product: "whatsapp",
+                    to: userId,
+                    text: { body: assistantResponse }
+                },
+                headers: { "Content-Type": "application/json" }
+            });
+        } else {
+            await sendMessageToFacebook(userId, assistantResponse, token);
+        }
+        
+        console.log(`✅ Response sent to ${userId}`);
+        
+    } catch (error) {
+        console.error(`❌ Error processing messages for ${userId}:`, error.message);
+        
+        // Intentar enviar mensaje de error al usuario
         try {
-            console.log(`📨 Processing message from ${userId}: "${message.text}"`);
-            
-            const assistantResponse = await getAssistantResponse(
-                message.text,
-                phone_no_id,
-                token,
-                userId,
-                platform
-            );
-            
-            console.log(`🤖 Assistant response for ${userId}:`, assistantResponse);
-            
-            // Enviar respuesta según la plataforma
+            const errorMsg = "Perdón, hubo un problema procesando tu mensaje. ¿Puedes intentar de nuevo?";
             if (platform === 'whatsapp') {
                 await axios({
                     method: "POST",
@@ -164,48 +203,21 @@ async function processMessageQueue(userId, phone_no_id, token, platform = 'whats
                     data: {
                         messaging_product: "whatsapp",
                         to: userId,
-                        text: { body: assistantResponse }
+                        text: { body: errorMsg }
                     },
                     headers: { "Content-Type": "application/json" }
                 });
             } else {
-                await sendMessageToFacebook(userId, assistantResponse, token);
+                await sendMessageToFacebook(userId, errorMsg, token);
             }
-            
-            console.log(`✅ Response sent to ${userId}`);
-            
-            // Pequeña pausa entre mensajes
-            await delay(500);
-            
-        } catch (error) {
-            console.error(`❌ Error processing message for ${userId}:`, error.message);
-            
-            // Intentar enviar mensaje de error al usuario
-            try {
-                const errorMsg = "Perdón, hubo un problema procesando tu mensaje. ¿Puedes intentar de nuevo?";
-                if (platform === 'whatsapp') {
-                    await axios({
-                        method: "POST",
-                        url: `https://graph.facebook.com/v13.0/${phone_no_id}/messages?access_token=${token}`,
-                        data: {
-                            messaging_product: "whatsapp",
-                            to: userId,
-                            text: { body: errorMsg }
-                        },
-                        headers: { "Content-Type": "application/json" }
-                    });
-                } else {
-                    await sendMessageToFacebook(userId, errorMsg, token);
-                }
-            } catch (sendError) {
-                console.error(`❌ Failed to send error message to ${userId}:`, sendError.message);
-            }
+        } catch (sendError) {
+            console.error(`❌ Failed to send error message to ${userId}:`, sendError.message);
         }
+    } finally {
+        queue.processing = false;
+        queue.lastActivity = Date.now();
+        console.log(`✅ Queue processing completed for ${userId}`);
     }
-    
-    queue.processing = false;
-    queue.lastActivity = Date.now();
-    console.log(`✅ Queue processing completed for ${userId}`);
 }
 
 // 🔥 NUEVO: Limpiar colas inactivas (cada 30 minutos)
@@ -217,11 +229,39 @@ setInterval(() => {
         if (!queue.processing && queue.messages.length === 0) {
             if (now - queue.lastActivity > INACTIVE_THRESHOLD) {
                 userQueues.delete(userId);
+                // Limpiar timer si existe
+                if (userTimers.has(userId)) {
+                    clearTimeout(userTimers.get(userId));
+                    userTimers.delete(userId);
+                }
                 console.log(`🧹 Removed inactive queue for ${userId}`);
             }
         }
     }
 }, 30 * 60 * 1000);
+
+// 🔥 NUEVO: Programar procesamiento con debounce
+function scheduleProcessing(userId, phone_no_id, token, platform) {
+    // Si ya existe un timer para este usuario, cancelarlo
+    if (userTimers.has(userId)) {
+        clearTimeout(userTimers.get(userId));
+        console.log(`⏰ Reset timer for ${userId} - waiting for more messages...`);
+    }
+    
+    // Crear nuevo timer de 30 segundos
+    const timer = setTimeout(() => {
+        console.log(`⏰ Timer finished for ${userId} - processing messages now`);
+        userTimers.delete(userId);
+        processMessageQueue(userId, phone_no_id, token, platform).catch(error => {
+            console.error('❌ Error in scheduled message processing:', error);
+        });
+    }, DEBOUNCE_TIME);
+    
+    userTimers.set(userId, timer);
+    
+    const queue = userQueues.get(userId);
+    console.log(`⏰ Timer set for ${userId} - will process ${queue.messages.length} message(s) in 20 seconds`);
+}
 
 app.listen(8000 || process.env.PORT, async () => {
     console.log("🚀 Webhook is listening");
@@ -850,7 +890,7 @@ app.post("/webhook", async (req, res) => {
                     return res.sendStatus(200);
                 }
 
-                // 🔥 NUEVO: Agregar mensaje a cola en lugar de procesarlo inmediatamente
+                // 🔥 NUEVO: Agregar mensaje a cola y programar procesamiento con debounce
                 initializeQueue(from);
                 userQueues.get(from).messages.push({ text: msg_body });
                 
@@ -859,10 +899,8 @@ app.post("/webhook", async (req, res) => {
                 // Responder inmediatamente a WhatsApp
                 res.sendStatus(200);
                 
-                // Procesar cola de forma asíncrona
-                processMessageQueue(from, phone_no_id, token, 'whatsapp').catch(error => {
-                    console.error('❌ Error in message queue processing:', error);
-                });
+                // 🔥 Programar procesamiento con debounce de 20 segundos
+                scheduleProcessing(from, phone_no_id, token, 'whatsapp');
 
             } else {
                 console.log('[WhatsApp] ℹ️ Non-message webhook (status/delivery), ignoring');
@@ -899,7 +937,7 @@ app.post("/webhook", async (req, res) => {
                 console.log(`[${platform}] 📨 Message received from:`, senderId);
                 console.log(`[${platform}] 💬 Message body:`, messageText);
 
-                // 🔥 NUEVO: Agregar mensaje a cola
+                // 🔥 NUEVO: Agregar mensaje a cola y programar procesamiento con debounce
                 initializeQueue(senderId);
                 userQueues.get(senderId).messages.push({ text: messageText });
                 
@@ -908,10 +946,8 @@ app.post("/webhook", async (req, res) => {
                 // Responder inmediatamente
                 res.sendStatus(200);
                 
-                // Procesar cola de forma asíncrona
-                processMessageQueue(senderId, null, pageToken, platform).catch(error => {
-                    console.error('❌ Error in message queue processing:', error);
-                });
+                // 🔥 Programar procesamiento con debounce de 20 segundos
+                scheduleProcessing(senderId, null, pageToken, platform);
 
             } else {
                 res.sendStatus(404);
