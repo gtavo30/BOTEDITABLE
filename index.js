@@ -323,24 +323,41 @@ const followUpFunction = async (phone_no_id, token) => {
     }
 };
 
-const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
-    console.log('[sendApptNotification] Starting...', { recipientName, recipientNumber, date, time, projectName, platform });
+// 🔥 CORREGIDO: Validación mejorada del número del lead
+const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
+    console.log('[sendApptNotification] Starting...', { 
+        leadPhoneNumber,  // Este es el número del LEAD (cliente)
+        recipientName, 
+        date, 
+        time, 
+        projectName, 
+        platform 
+    });
     
     try {
-        // Validar que recipientNumber sea un número de teléfono válido
+        // 🔥 VALIDACIÓN: Asegurar que NO se esté usando el número del vendedor
+        if (leadPhoneNumber === SALES_MAN) {
+            console.error('[sendApptNotification] ❌ ERROR: Trying to use SALES_MAN number as lead number!');
+            console.error('[sendApptNotification] ❌ This means the assistant is confused about which number to use');
+            return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
+        }
+        
+        // Validar que leadPhoneNumber sea un número de teléfono válido
         const phoneRegex = /^\+?[0-9]{10,15}$/;
-        const isValidPhone = phoneRegex.test(recipientNumber.replace(/\s/g, ''));
+        const isValidPhone = phoneRegex.test(leadPhoneNumber.replace(/\s/g, ''));
         
         if (!isValidPhone) {
-            console.error('[sendApptNotification] ❌ Invalid phone number:', recipientNumber);
+            console.error('[sendApptNotification] ❌ Invalid phone number:', leadPhoneNumber);
             return "Error: El número de teléfono proporcionado no es válido. Por favor proporciona un número válido para agendar la cita.";
         }
 
-        // Enviar notificación via WhatsApp
+        console.log('[sendApptNotification] ✅ Validation passed. Lead phone:', leadPhoneNumber, '| Salesman phone:', SALES_MAN);
+
+        // Enviar notificación via WhatsApp AL VENDEDOR con la info del LEAD
         if (platform === 'whatsapp' && phone_no_id) {
             const message_payload = {
                 'messaging_product': 'whatsapp',
-                'to': SALES_MAN,
+                'to': SALES_MAN,  // Enviar AL VENDEDOR
                 'type': 'template',
                 'template': {
                     'name': 'salesman_appoimant_contact',
@@ -350,7 +367,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
                             'type': 'body',
                             'parameters': [
                                 { 'type': 'text', 'text': recipientName },
-                                { 'type': 'text', 'text': recipientNumber },
+                                { 'type': 'text', 'text': leadPhoneNumber },  // Número del LEAD
                                 { 'type': 'text', 'text': date },
                                 { 'type': 'text', 'text': time },
                                 { 'type': 'text', 'text': projectName },
@@ -366,11 +383,12 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
                 'Content-Type': 'application/json'
             };
 
-            console.log('[sendApptNotification] Sending to salesman...', SALES_MAN);
+            console.log('[sendApptNotification] Sending notification TO salesman:', SALES_MAN);
+            console.log('[sendApptNotification] WITH lead info - Name:', recipientName, '| Phone:', leadPhoneNumber);
             const response = await axios.post(url, message_payload, { headers });
 
             console.log('[sendApptNotification] Response:', response.data);
-            console.log("Salesman notified of the appointment scheduled via WhatsApp.");
+            console.log("✅ Salesman notified of the appointment via WhatsApp.");
         } else if (platform === 'messenger' || platform === 'instagram') {
             console.log('[sendApptNotification] Messenger/Instagram: Sending notification via WhatsApp to salesman');
             
@@ -380,7 +398,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
             if (whatsappPhoneId && whatsappToken) {
                 const message_payload = {
                     'messaging_product': 'whatsapp',
-                    'to': SALES_MAN,
+                    'to': SALES_MAN,  // Enviar AL VENDEDOR
                     'type': 'template',
                     'template': {
                         'name': 'salesman_appoimant_contact',
@@ -390,7 +408,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
                                 'type': 'body',
                                 'parameters': [
                                     { 'type': 'text', 'text': recipientName },
-                                    { 'type': 'text', 'text': recipientNumber },
+                                    { 'type': 'text', 'text': leadPhoneNumber },  // Número del LEAD
                                     { 'type': 'text', 'text': date },
                                     { 'type': 'text', 'text': time },
                                     { 'type': 'text', 'text': projectName },
@@ -423,12 +441,12 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
             const data = await fs.readFile('users_threads.json', 'utf8');
             const usersThreads = JSON.parse(data);
 
-            const userThread = usersThreads.find(user => user['customer phone number'] === recipientNumber);
+            const userThread = usersThreads.find(user => user['customer phone number'] === leadPhoneNumber);
 
             if (userThread) {
                 userThread.appointment_made = true;
                 await fs.writeFile('users_threads.json', JSON.stringify(usersThreads, null, 2));
-                console.log(`Appointment status updated to True for ${recipientNumber} in users_threads.json`);
+                console.log(`✅ Appointment status updated to True for ${leadPhoneNumber} in users_threads.json`);
             }
         } catch (err) {
             console.error('Error updating appointment status:', err);
@@ -446,10 +464,11 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, recipientNumbe
     }
 };
 
+// 🔥 CORREGIDO: Usar el número del lead, no el del vendedor
 async function addCustomerContactAndProjectToCRM(
     phone_no_id, 
     token, 
-    recipientNumber, 
+    leadPhoneNumber,  // Número del LEAD (cliente)
     firstName, 
     lastName, 
     email = '', 
@@ -458,7 +477,7 @@ async function addCustomerContactAndProjectToCRM(
     conversationHistory = []
 ) {
     console.log('[addCustomer] Input:', { 
-        recipientNumber, 
+        leadPhoneNumber,  // Este es el número del LEAD
         firstName, 
         lastName, 
         email, 
@@ -467,6 +486,14 @@ async function addCustomerContactAndProjectToCRM(
         conversationLength: conversationHistory ? conversationHistory.length : 0
     });
     
+    // 🔥 VALIDACIÓN: Asegurar que NO se esté usando el número del vendedor
+    if (leadPhoneNumber === SALES_MAN) {
+        console.error('[addCustomer] ❌ ERROR: Trying to use SALES_MAN number as lead number!');
+        console.error('[addCustomer] ❌ This means the assistant is confused about which number to use');
+        return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
+    }
+    
+    console.log('[addCustomer] ✅ Using lead phone number:', leadPhoneNumber);
     console.log('[addCustomer] Comments content:', comments);
     
     if (!BITRIX_WEBHOOK_BASE) {
@@ -477,7 +504,7 @@ async function addCustomerContactAndProjectToCRM(
     const batchUrl = `${BITRIX_WEBHOOK_BASE.replace(/\/$/, '')}/batch.json`;
     
     const commands = {
-        createContact: `crm.contact.add?FIELDS[NAME]=${encodeURIComponent('')}&FIELDS[LAST_NAME]=${encodeURIComponent(firstName + ' ' + lastName)}&FIELDS[EMAIL][0][VALUE]=${encodeURIComponent(email)}&FIELDS[EMAIL][0][VALUE_TYPE]=WORK&FIELDS[PHONE][0][VALUE]=${encodeURIComponent(recipientNumber)}&FIELDS[PHONE][0][VALUE_TYPE]=WORK`,
+        createContact: `crm.contact.add?FIELDS[NAME]=${encodeURIComponent('')}&FIELDS[LAST_NAME]=${encodeURIComponent(firstName + ' ' + lastName)}&FIELDS[EMAIL][0][VALUE]=${encodeURIComponent(email)}&FIELDS[EMAIL][0][VALUE_TYPE]=WORK&FIELDS[PHONE][0][VALUE]=${encodeURIComponent(leadPhoneNumber)}&FIELDS[PHONE][0][VALUE_TYPE]=WORK`,
         createDeal: `crm.deal.add?FIELDS[TITLE]=${encodeURIComponent('Lead - ' + firstName + ' ' + lastName)}&FIELDS[CONTACT_ID]=$result[createContact]&FIELDS[COMMENTS]=${encodeURIComponent(projectName)}&FIELDS[UF_CRM_1706240341362]=${encodeURIComponent(projectName)}`
     };
 
@@ -497,7 +524,8 @@ async function addCustomerContactAndProjectToCRM(
     }
 
     try {
-        console.log('[addCustomer] Sending batch request...');
+        console.log('[addCustomer] Sending batch request to Bitrix...');
+        console.log('[addCustomer] Creating contact with phone:', leadPhoneNumber);
         const response = await axios({
             method: 'POST',
             url: batchUrl,
@@ -511,7 +539,7 @@ async function addCustomerContactAndProjectToCRM(
 
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
-            console.log('[addCustomer] Deal created with ID:', dealId);
+            console.log('[addCustomer] ✅ Deal created with ID:', dealId, '| Lead phone:', leadPhoneNumber);
             
             if (response.data.result.result.addSummary) {
                 console.log('[addCustomer] ✅ Summary added to timeline successfully');
@@ -591,16 +619,18 @@ const getOrCreateThreadId = async (phoneNumber) => {
 };
 
 // 🔥 MEJORADO: getAssistantResponse con reintentos y mejor manejo de errores
-const getAssistantResponse = async function (prompt, phone_no_id, token, recipientNumber, platform = 'whatsapp') {
+const getAssistantResponse = async function (prompt, phone_no_id, token, leadPhoneNumber, platform = 'whatsapp') {
     const maxRetries = 3;
     let attempt = 0;
+
+    console.log('[getAssistantResponse] Called with leadPhoneNumber:', leadPhoneNumber);
 
     while (attempt < maxRetries) {
         try {
             attempt++;
-            console.log(`🔄 Attempt ${attempt}/${maxRetries} for ${recipientNumber}`);
+            console.log(`🔄 Attempt ${attempt}/${maxRetries} for ${leadPhoneNumber}`);
 
-            const thread = await getOrCreateThreadId(recipientNumber);
+            const thread = await getOrCreateThreadId(leadPhoneNumber);
             
             if (!thread) {
                 console.error('❌ Failed to get or create thread');
@@ -613,7 +643,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
 
             let enhancedPrompt = prompt;
             if (platform === 'messenger' || platform === 'instagram') {
-                enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. No tienes su número de teléfono. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione (ejemplo: +593984679525). NO uses ningún otro identificador.]\n\n${prompt}`;
+                enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. Este es su ID: ${leadPhoneNumber}. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione en la conversación (ejemplo: +593984679525). NO uses el ID ${leadPhoneNumber} como número de teléfono.]\n\n${prompt}`;
             }
 
             const threadId = typeof thread === 'string' ? thread : thread.id;
@@ -635,7 +665,7 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
 
             console.log('✅ Run created:', run.id);
 
-            const response = await checkStatusAndPrintMessages(threadId, run.id, phone_no_id, token, recipientNumber, platform);
+            const response = await checkStatusAndPrintMessages(threadId, run.id, phone_no_id, token, leadPhoneNumber, platform);
             
             // Si fue exitoso, retornar
             return response;
@@ -664,11 +694,14 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, recipie
     return "Perdón, ese mensaje no llegó bien. ¿Me lo puedes repetir?";
 };
 
-const checkStatusAndPrintMessages = async (threadId, runId, phone_no_id, token, recipientNumber, platform) => {
+// 🔥 CRÍTICO: Aquí está el fix principal - usar SIEMPRE el número del lead
+const checkStatusAndPrintMessages = async (threadId, runId, phone_no_id, token, leadPhoneNumber, platform) => {
     try {
         let runStatus;
         let attempts = 0;
         const maxAttempts = 120;
+        
+        console.log('[checkStatus] Processing for lead:', leadPhoneNumber);
         
         while (attempts < maxAttempts) {
             attempts++;
@@ -705,24 +738,35 @@ const checkStatusAndPrintMessages = async (threadId, runId, phone_no_id, token, 
 
                     if (dispatchTable[funcName]) {
                         console.log(`🔧 Executing function: ${funcName}`);
-                        console.log('Arguments:', JSON.stringify(functionArguments, null, 2));
+                        console.log('Function arguments received:', JSON.stringify(functionArguments, null, 2));
                         
                         try {
                             let output;
                             
                             if (funcName === 'addCustomerContactAndProjectToCRM') {
-                                let phoneNumber = functionArguments.recipientNumber || recipientNumber;
+                                // 🔥 CRÍTICO: Usar el número del LEAD que está escribiendo
+                                let phoneToUse = leadPhoneNumber;  // Default: usar el número del remitente
                                 
-                                if ((platform === 'messenger' || platform === 'instagram') && phoneNumber === recipientNumber) {
-                                    console.warn('⚠️ [addCustomer] Using Facebook ID as phone number. Assistant should provide recipientNumber parameter.');
-                                    console.warn('⚠️ [addCustomer] RecipientNumber from function args:', functionArguments.recipientNumber);
-                                    console.warn('⚠️ [addCustomer] Default recipientNumber (Facebook ID):', recipientNumber);
+                                // Solo si el asistente proporcionó un número Y es diferente al ID de Facebook
+                                if (functionArguments.recipientNumber && 
+                                    functionArguments.recipientNumber !== leadPhoneNumber &&
+                                    functionArguments.recipientNumber.match(/^\+?[0-9]{10,15}$/)) {
+                                    phoneToUse = functionArguments.recipientNumber;
+                                    console.log('[addCustomer] ✅ Using phone number from assistant:', phoneToUse);
+                                } else {
+                                    console.log('[addCustomer] ✅ Using lead phone number (message sender):', phoneToUse);
+                                }
+                                
+                                // Validación extra: NO usar el número del vendedor
+                                if (phoneToUse === SALES_MAN) {
+                                    console.error('[addCustomer] ❌ CRITICAL ERROR: Assistant provided SALES_MAN number!');
+                                    phoneToUse = leadPhoneNumber;  // Forzar usar el número del lead
                                 }
                                 
                                 output = await addCustomerContactAndProjectToCRM(
                                     phone_no_id,
                                     token,
-                                    phoneNumber,
+                                    phoneToUse,  // 🔥 Usar el número correcto del LEAD
                                     functionArguments.firstName,
                                     functionArguments.lastName,
                                     functionArguments.email || '',
@@ -731,22 +775,29 @@ const checkStatusAndPrintMessages = async (threadId, runId, phone_no_id, token, 
                                     functionArguments.conversationHistory || []
                                 );
                             } else if (funcName === 'sendApptNotificationToSalesMan') {
-                                let phoneNumber = functionArguments.recipientNumber;
+                                // 🔥 CRÍTICO: Usar el número del LEAD que está escribiendo
+                                let phoneToUse = leadPhoneNumber;  // Default: usar el número del remitente
                                 
-                                if (!phoneNumber || phoneNumber === recipientNumber) {
-                                    if (platform === 'whatsapp') {
-                                        phoneNumber = recipientNumber;
-                                        console.log('[sendAppt] ✅ Using WhatsApp sender number:', phoneNumber);
-                                    } else {
-                                        console.warn('⚠️ [sendAppt] Missing phone number for Messenger/Instagram');
-                                        phoneNumber = recipientNumber;
-                                    }
+                                // Solo si el asistente proporcionó un número Y es válido
+                                if (functionArguments.recipientNumber && 
+                                    functionArguments.recipientNumber !== leadPhoneNumber &&
+                                    functionArguments.recipientNumber.match(/^\+?[0-9]{10,15}$/)) {
+                                    phoneToUse = functionArguments.recipientNumber;
+                                    console.log('[sendAppt] ✅ Using phone number from assistant:', phoneToUse);
+                                } else {
+                                    console.log('[sendAppt] ✅ Using lead phone number (message sender):', phoneToUse);
+                                }
+                                
+                                // Validación extra: NO usar el número del vendedor
+                                if (phoneToUse === SALES_MAN) {
+                                    console.error('[sendAppt] ❌ CRITICAL ERROR: Assistant provided SALES_MAN number!');
+                                    phoneToUse = leadPhoneNumber;  // Forzar usar el número del lead
                                 }
                                 
                                 output = await sendApptNotificationToSalesMan(
                                     phone_no_id,
                                     token,
-                                    phoneNumber,
+                                    phoneToUse,  // 🔥 Usar el número correcto del LEAD
                                     functionArguments.recipientName,
                                     functionArguments.date,
                                     functionArguments.time,
@@ -757,7 +808,7 @@ const checkStatusAndPrintMessages = async (threadId, runId, phone_no_id, token, 
                                 output = await appendDealChatResumen(
                                     phone_no_id,
                                     token,
-                                    recipientNumber,
+                                    leadPhoneNumber,
                                     ...Object.values(functionArguments)
                                 );
                             }
@@ -876,7 +927,7 @@ app.post("/webhook", async (req, res) => {
                 }
                 processedMessages.add(wamid);
 
-                console.log('[WhatsApp] 📨 Message received from:', from);
+                console.log('[WhatsApp] 📨 Message received from LEAD:', from);
                 console.log('[WhatsApp] 💬 Message body:', msg_body);
 
                 // Manejar comando de follow-up
@@ -894,7 +945,7 @@ app.post("/webhook", async (req, res) => {
                 initializeQueue(from);
                 userQueues.get(from).messages.push({ text: msg_body });
                 
-                console.log(`📥 Message added to queue for ${from}. Queue size: ${userQueues.get(from).messages.length}`);
+                console.log(`📥 Message added to queue for LEAD ${from}. Queue size: ${userQueues.get(from).messages.length}`);
                 
                 // Responder inmediatamente a WhatsApp
                 res.sendStatus(200);
@@ -934,7 +985,7 @@ app.post("/webhook", async (req, res) => {
                 }
                 processedMessages.add(mid);
 
-                console.log(`[${platform}] 📨 Message received from:`, senderId);
+                console.log(`[${platform}] 📨 Message received from LEAD ID:`, senderId);
                 console.log(`[${platform}] 💬 Message body:`, messageText);
 
                 // 🔥 NUEVO: Agregar mensaje a cola y programar procesamiento con debounce
