@@ -913,6 +913,39 @@ app.post("/webhook", async (req, res) => {
                 let messageType = messageData.type;
                 let wamid = messageData.id;
                 
+                // 🔥 NUEVO: Manejar mensajes desde anuncios de Instagram (referral)
+                if (messageData.referral && messageType !== 'text') {
+                    console.log('[WhatsApp] 📢 Referral detected from ad campaign');
+                    console.log('[WhatsApp] 📢 Source:', messageData.referral.source_type);
+                    console.log('[WhatsApp] 📢 Ad body:', messageData.referral.body);
+                    
+                    // Deduplicación
+                    if (processedMessages.has(wamid)) {
+                        console.log('[WhatsApp] ⚠️ Duplicate referral message, ignoring:', wamid);
+                        return res.sendStatus(200);
+                    }
+                    processedMessages.add(wamid);
+                    
+                    console.log('[WhatsApp] 📨 Referral message from LEAD:', from);
+                    
+                    // Inicializar cola y agregar un mensaje simulado para procesar
+                    initializeQueue(from);
+                    
+                    // Simular que el usuario escribió el mensaje del referral
+                    const referralText = messageData.referral.body || "Hola, quiero más información del proyecto Porto Alegre";
+                    userQueues.get(from).messages.push({ text: referralText });
+                    
+                    console.log(`📥 Referral message added to queue for LEAD ${from}`);
+                    
+                    // Responder inmediatamente a WhatsApp
+                    res.sendStatus(200);
+                    
+                    // Programar procesamiento con debounce
+                    scheduleProcessing(from, phone_no_id, token, 'whatsapp');
+                    
+                    return; // Salir aquí para no procesar más abajo
+                }
+                
                 if (messageType !== 'text') {
                     console.log(`[WhatsApp] ⚠️ Ignoring non-text message type: ${messageType}`);
                     return res.sendStatus(200);
