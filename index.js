@@ -4,8 +4,6 @@ const axios = require("axios");
 const OpenAI = require("openai");
 const fs = require('fs').promises;
 const fsSync = require('fs');
-const { Logtail } = require("@logtail/node");
-const logtail = new Logtail("2pELuxo9yuSQr6gDQeqzY4Vvkbga49nj");
 
 require("dotenv").config();
 
@@ -28,30 +26,6 @@ const SALES_MAN = process.env.SALES_MAN;
 const BITRIX_WEBHOOK_BASE = process.env.BITRIX_WEBHOOK_BASE;
 const FOLLOWUP_MESSAGES_TRIGGER_NUMBER = process.env.FOLLOWUP_MESSAGES_TRIGGER_NUMBER || 593999706271;
 const FOLLOWUP_MESSAGES_TRIGGER_COMMAND = process.env.FOLLOWUP_MESSAGES_TRIGGER_COMMAND || "send follow up messages";
-
-// 📊 Función de logging que envía a consola Y Better Stack
-async function log(message, data = {}, level = 'info') {
-  const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} ${message}`;
-  
-  // Siempre mostrar en consola
-  console.log(logEntry, data);
-  
-  // Enviar a Better Stack
-  try {
-    if (level === 'error') {
-      await logtail.error(message, data);
-    } else if (level === 'warn') {
-      await logtail.warn(message, data);
-    } else {
-      await logtail.info(message, data);
-    }
-    await logtail.flush();
-  } catch (err) {
-    console.error('Error sending to Better Stack:', err);
-  }
-}
-
 
 const openai = new OpenAI({
     apiKey: apiKey,
@@ -494,7 +468,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
 async function addCustomerContactAndProjectToCRM(
     phone_no_id, 
     token, 
-    leadPhoneNumber,
+    leadPhoneNumber,  // Número del LEAD (cliente)
     firstName, 
     lastName, 
     email = '', 
@@ -502,8 +476,8 @@ async function addCustomerContactAndProjectToCRM(
     comments = '',
     conversationHistory = []
 ) {
-    await log('[addCustomer] Input:', { 
-        leadPhoneNumber,
+    console.log('[addCustomer] Input:', { 
+        leadPhoneNumber,  // Este es el número del LEAD
         firstName, 
         lastName, 
         email, 
@@ -512,15 +486,18 @@ async function addCustomerContactAndProjectToCRM(
         conversationLength: conversationHistory ? conversationHistory.length : 0
     });
     
+    // 🔥 VALIDACIÓN: Asegurar que NO se esté usando el número del vendedor
     if (leadPhoneNumber === SALES_MAN) {
-        await log('[addCustomer] ERROR: Trying to use SALES_MAN number as lead!', { leadPhoneNumber, SALES_MAN }, 'error');
-        return "Error interno: El sistema detectó un número de teléfono incorrecto.";
+        console.error('[addCustomer] ❌ ERROR: Trying to use SALES_MAN number as lead number!');
+        console.error('[addCustomer] ❌ This means the assistant is confused about which number to use');
+        return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
     }
     
-    await log('[addCustomer] Using lead phone number:', { leadPhoneNumber, projectName });
+    console.log('[addCustomer] ✅ Using lead phone number:', leadPhoneNumber);
+    console.log('[addCustomer] Comments content:', comments);
     
     if (!BITRIX_WEBHOOK_BASE) {
-        await log('[addCustomer] BITRIX_WEBHOOK_BASE not set', {}, 'error');
+        console.error('[addCustomer] BITRIX_WEBHOOK_BASE not set');
         return "Error: CRM configuration missing";
     }
 
@@ -534,7 +511,7 @@ async function addCustomerContactAndProjectToCRM(
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
         commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
-        await log('[addCustomer] Adding summary', { summaryLength: summaryText.length });
+        console.log('[addCustomer] Adding summary with length:', summaryText.length);
     } else {
         const defaultNote = 'Lead registrado desde WhatsApp. Proyecto: ' + projectName;
         commands.addNote = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(defaultNote)}`;
@@ -547,8 +524,8 @@ async function addCustomerContactAndProjectToCRM(
     }
 
     try {
-        await log('[addCustomer] Sending batch request to Bitrix...', { leadPhoneNumber, projectName });
-        
+        console.log('[addCustomer] Sending batch request to Bitrix...');
+        console.log('[addCustomer] Creating contact with phone:', leadPhoneNumber);
         const response = await axios({
             method: 'POST',
             url: batchUrl,
@@ -558,46 +535,43 @@ async function addCustomerContactAndProjectToCRM(
             }
         });
 
-        await log('[addCustomer] Batch response received', { 
-            hasResult: !!response.data?.result,
-            responseKeys: Object.keys(response.data || {})
-        });
+        console.log('[addCustomer] Batch response:', JSON.stringify(response.data));
 
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
-            await log('[addCustomer] ✅ Deal created successfully', { 
-                dealId, 
-                leadPhoneNumber,
-                projectName,
-                firstName,
-                lastName
-            });
+            console.log('[addCustomer] ✅ Deal created with ID:', dealId, '| Lead phone:', leadPhoneNumber);
             
             if (response.data.result.result.addSummary) {
-                await log('[addCustomer] ✅ Summary added to timeline');
+                console.log('[addCustomer] ✅ Summary added to timeline successfully');
             } else if (response.data.result.result_error && response.data.result.result_error.addSummary) {
-                await log('[addCustomer] ❌ Error adding summary', { 
-                    error: response.data.result.result_error.addSummary 
-                }, 'error');
+                console.error('[addCustomer] ❌ Error adding summary:', response.data.result.result_error.addSummary);
             }
             
             return "The customer contact has been saved - don't tell the customer about that it's just for our backend";
         } else {
-            await log('[addCustomer] Batch error - no result', { 
-                responseData: response.data 
-            }, 'error');
+            console.error('[addCustomer] Batch error:', response.data);
             return null;
         }
     } catch (error) {
-        await log('[addCustomer] Exception occurred', { 
-            message: error.message,
-            stack: error.stack,
-            leadPhoneNumber,
-            projectName
-        }, 'error');
+        console.error('[addCustomer] Error:', error.message);
+        console.error('[addCustomer] Stack:', error.stack);
         return null;
     }
 }
+
+// 🔥 MEJORADO: getOrCreateThreadId con mejor manejo de concurrencia
+const getOrCreateThreadId = async (phoneNumber) => {
+    try {
+        // Verificar cache primero
+        if (threadCache.has(phoneNumber)) {
+            console.log('✅ Found thread in cache for:', phoneNumber);
+            return threadCache.get(phoneNumber);
+        }
+
+        // Adquirir lock para evitar crear threads duplicados
+        while (userLocks.get(phoneNumber)) {
+            console.log('⏳ Waiting for lock to be released for:', phoneNumber);
+            await delay(100);
         }
         
         userLocks.set(phoneNumber, true);
