@@ -4,6 +4,8 @@ const axios = require("axios");
 const OpenAI = require("openai");
 const fs = require('fs').promises;
 const fsSync = require('fs');
+const { Logtail } = require("@logtail/node");
+const logtail = new Logtail("2pELuxo9yuSQr6gDQeqzY4Vvkbga49nj");
 
 require("dotenv").config();
 
@@ -30,6 +32,29 @@ const FOLLOWUP_MESSAGES_TRIGGER_COMMAND = process.env.FOLLOWUP_MESSAGES_TRIGGER_
 const openai = new OpenAI({
     apiKey: apiKey,
 });
+
+// 📊 Función de logging que envía a consola Y Better Stack
+async function log(message, data = {}, level = 'info') {
+  const timestamp = new Date().toISOString();
+  const logEntry = `${timestamp} ${message}`;
+  
+  // Siempre mostrar en consola
+  console.log(logEntry, data);
+  
+  // Enviar a Better Stack
+  try {
+    if (level === 'error') {
+      await logtail.error(message, data);
+    } else if (level === 'warn') {
+      await logtail.warn(message, data);
+    } else {
+      await logtail.info(message, data);
+    }
+    await logtail.flush();
+  } catch (err) {
+    console.error('Error sending to Better Stack:', err);
+  }
+}
 
 // 🔥 CACHE para deduplicación de mensajes (en memoria)
 const processedMessages = new Set();
@@ -325,8 +350,8 @@ const followUpFunction = async (phone_no_id, token) => {
 
 // 🔥 CORREGIDO: Validación mejorada del número del lead
 const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumber, recipientName, date, time, projectName, platform = 'whatsapp') => {
-    console.log('[sendApptNotification] Starting...', { 
-        leadPhoneNumber,  // Este es el número del LEAD (cliente)
+    await log('[sendApptNotification] Starting...', { 
+        leadPhoneNumber,
         recipientName, 
         date, 
         time, 
@@ -337,8 +362,10 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
     try {
         // 🔥 VALIDACIÓN: Asegurar que NO se esté usando el número del vendedor
         if (leadPhoneNumber === SALES_MAN) {
-            console.error('[sendApptNotification] ❌ ERROR: Trying to use SALES_MAN number as lead number!');
-            console.error('[sendApptNotification] ❌ This means the assistant is confused about which number to use');
+            await log('[sendApptNotification] ERROR: Trying to use SALES_MAN number as lead!', { 
+                leadPhoneNumber, 
+                SALES_MAN 
+            }, 'error');
             return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
         }
         
@@ -347,17 +374,17 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
         const isValidPhone = phoneRegex.test(leadPhoneNumber.replace(/\s/g, ''));
         
         if (!isValidPhone) {
-            console.error('[sendApptNotification] ❌ Invalid phone number:', leadPhoneNumber);
+            await log('[sendApptNotification] Invalid phone number', { leadPhoneNumber }, 'error');
             return "Error: El número de teléfono proporcionado no es válido. Por favor proporciona un número válido para agendar la cita.";
         }
 
-        console.log('[sendApptNotification] ✅ Validation passed. Lead phone:', leadPhoneNumber, '| Salesman phone:', SALES_MAN);
+        await log('[sendApptNotification] Validation passed', { leadPhoneNumber, SALES_MAN });
 
         // Enviar notificación via WhatsApp AL VENDEDOR con la info del LEAD
         if (platform === 'whatsapp' && phone_no_id) {
             const message_payload = {
                 'messaging_product': 'whatsapp',
-                'to': SALES_MAN,  // Enviar AL VENDEDOR
+                'to': SALES_MAN,
                 'type': 'template',
                 'template': {
                     'name': 'salesman_appoimant_contact',
@@ -367,7 +394,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
                             'type': 'body',
                             'parameters': [
                                 { 'type': 'text', 'text': recipientName },
-                                { 'type': 'text', 'text': leadPhoneNumber },  // Número del LEAD
+                                { 'type': 'text', 'text': leadPhoneNumber },
                                 { 'type': 'text', 'text': date },
                                 { 'type': 'text', 'text': time },
                                 { 'type': 'text', 'text': projectName },
@@ -383,12 +410,19 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
                 'Content-Type': 'application/json'
             };
 
-            console.log('[sendApptNotification] Sending notification TO salesman:', SALES_MAN);
-            console.log('[sendApptNotification] WITH lead info - Name:', recipientName, '| Phone:', leadPhoneNumber);
+            await log('[sendApptNotification] Sending notification to salesman', { 
+                salesman: SALES_MAN,
+                leadName: recipientName,
+                leadPhone: leadPhoneNumber,
+                project: projectName
+            });
+            
             const response = await axios.post(url, message_payload, { headers });
 
-            console.log('[sendApptNotification] Response:', response.data);
-            console.log("✅ Salesman notified of the appointment via WhatsApp.");
+            await log('[sendApptNotification] Notification sent successfully', { 
+                messageId: response.data.messages?.[0]?.id 
+            });
+            
         } else if (platform === 'messenger' || platform === 'instagram') {
             console.log('[sendApptNotification] Messenger/Instagram: Sending notification via WhatsApp to salesman');
             
@@ -398,7 +432,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
             if (whatsappPhoneId && whatsappToken) {
                 const message_payload = {
                     'messaging_product': 'whatsapp',
-                    'to': SALES_MAN,  // Enviar AL VENDEDOR
+                    'to': SALES_MAN,
                     'type': 'template',
                     'template': {
                         'name': 'salesman_appoimant_contact',
@@ -408,7 +442,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
                                 'type': 'body',
                                 'parameters': [
                                     { 'type': 'text', 'text': recipientName },
-                                    { 'type': 'text', 'text': leadPhoneNumber },  // Número del LEAD
+                                    { 'type': 'text', 'text': leadPhoneNumber },
                                     { 'type': 'text', 'text': date },
                                     { 'type': 'text', 'text': time },
                                     { 'type': 'text', 'text': projectName },
@@ -455,11 +489,12 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
         return "Thank you for booking the appointment. We'll get back to you soon.";
 
     } catch (error) {
-        console.error('[sendApptNotification] Error:', error.message);
-        console.error('[sendApptNotification] Stack:', error.stack);
-        if (error.response) {
-            console.error('[sendApptNotification] Response data:', error.response.data);
-        }
+        await log('[sendApptNotification] Exception occurred', {
+            message: error.message,
+            stack: error.stack,
+            leadPhoneNumber,
+            projectName
+        }, 'error');
         return "Error notifying salesman";
     }
 };
@@ -468,7 +503,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
 async function addCustomerContactAndProjectToCRM(
     phone_no_id, 
     token, 
-    leadPhoneNumber,  // Número del LEAD (cliente)
+    leadPhoneNumber,
     firstName, 
     lastName, 
     email = '', 
@@ -476,8 +511,8 @@ async function addCustomerContactAndProjectToCRM(
     comments = '',
     conversationHistory = []
 ) {
-    console.log('[addCustomer] Input:', { 
-        leadPhoneNumber,  // Este es el número del LEAD
+    await log('[addCustomer] Input:', { 
+        leadPhoneNumber,
         firstName, 
         lastName, 
         email, 
@@ -488,16 +523,17 @@ async function addCustomerContactAndProjectToCRM(
     
     // 🔥 VALIDACIÓN: Asegurar que NO se esté usando el número del vendedor
     if (leadPhoneNumber === SALES_MAN) {
-        console.error('[addCustomer] ❌ ERROR: Trying to use SALES_MAN number as lead number!');
-        console.error('[addCustomer] ❌ This means the assistant is confused about which number to use');
+        await log('[addCustomer] ERROR: Trying to use SALES_MAN number as lead!', { 
+            leadPhoneNumber, 
+            SALES_MAN 
+        }, 'error');
         return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
     }
     
-    console.log('[addCustomer] ✅ Using lead phone number:', leadPhoneNumber);
-    console.log('[addCustomer] Comments content:', comments);
+    await log('[addCustomer] Using lead phone number', { leadPhoneNumber, projectName });
     
     if (!BITRIX_WEBHOOK_BASE) {
-        console.error('[addCustomer] BITRIX_WEBHOOK_BASE not set');
+        await log('[addCustomer] BITRIX_WEBHOOK_BASE not set', {}, 'error');
         return "Error: CRM configuration missing";
     }
 
@@ -511,7 +547,7 @@ async function addCustomerContactAndProjectToCRM(
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
         commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
-        console.log('[addCustomer] Adding summary with length:', summaryText.length);
+        await log('[addCustomer] Adding summary', { summaryLength: summaryText.length });
     } else {
         const defaultNote = 'Lead registrado desde WhatsApp. Proyecto: ' + projectName;
         commands.addNote = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(defaultNote)}`;
@@ -524,8 +560,8 @@ async function addCustomerContactAndProjectToCRM(
     }
 
     try {
-        console.log('[addCustomer] Sending batch request to Bitrix...');
-        console.log('[addCustomer] Creating contact with phone:', leadPhoneNumber);
+        await log('[addCustomer] Sending batch request to Bitrix', { leadPhoneNumber, projectName });
+        
         const response = await axios({
             method: 'POST',
             url: batchUrl,
@@ -535,26 +571,43 @@ async function addCustomerContactAndProjectToCRM(
             }
         });
 
-        console.log('[addCustomer] Batch response:', JSON.stringify(response.data));
+        await log('[addCustomer] Batch response received', { 
+            hasResult: !!response.data?.result,
+            responseKeys: Object.keys(response.data || {})
+        });
 
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
-            console.log('[addCustomer] ✅ Deal created with ID:', dealId, '| Lead phone:', leadPhoneNumber);
+            await log('[addCustomer] Deal created successfully', { 
+                dealId, 
+                leadPhoneNumber,
+                projectName,
+                firstName,
+                lastName
+            });
             
             if (response.data.result.result.addSummary) {
-                console.log('[addCustomer] ✅ Summary added to timeline successfully');
+                await log('[addCustomer] Summary added to timeline');
             } else if (response.data.result.result_error && response.data.result.result_error.addSummary) {
-                console.error('[addCustomer] ❌ Error adding summary:', response.data.result.result_error.addSummary);
+                await log('[addCustomer] Error adding summary', { 
+                    error: response.data.result.result_error.addSummary 
+                }, 'error');
             }
             
             return "The customer contact has been saved - don't tell the customer about that it's just for our backend";
         } else {
-            console.error('[addCustomer] Batch error:', response.data);
+            await log('[addCustomer] Batch error - no result', { 
+                responseData: response.data 
+            }, 'error');
             return null;
         }
     } catch (error) {
-        console.error('[addCustomer] Error:', error.message);
-        console.error('[addCustomer] Stack:', error.stack);
+        await log('[addCustomer] Exception occurred', { 
+            message: error.message,
+            stack: error.stack,
+            leadPhoneNumber,
+            projectName
+        }, 'error');
         return null;
     }
 }
