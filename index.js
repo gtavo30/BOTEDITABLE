@@ -494,7 +494,7 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
 async function addCustomerContactAndProjectToCRM(
     phone_no_id, 
     token, 
-    leadPhoneNumber,  // Número del LEAD (cliente)
+    leadPhoneNumber,
     firstName, 
     lastName, 
     email = '', 
@@ -502,8 +502,8 @@ async function addCustomerContactAndProjectToCRM(
     comments = '',
     conversationHistory = []
 ) {
-    console.log('[addCustomer] Input:', { 
-        leadPhoneNumber,  // Este es el número del LEAD
+    await log('[addCustomer] Input:', { 
+        leadPhoneNumber,
         firstName, 
         lastName, 
         email, 
@@ -512,18 +512,15 @@ async function addCustomerContactAndProjectToCRM(
         conversationLength: conversationHistory ? conversationHistory.length : 0
     });
     
-    // 🔥 VALIDACIÓN: Asegurar que NO se esté usando el número del vendedor
     if (leadPhoneNumber === SALES_MAN) {
-        console.error('[addCustomer] ❌ ERROR: Trying to use SALES_MAN number as lead number!');
-        console.error('[addCustomer] ❌ This means the assistant is confused about which number to use');
-        return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
+        await log('[addCustomer] ERROR: Trying to use SALES_MAN number as lead!', { leadPhoneNumber, SALES_MAN }, 'error');
+        return "Error interno: El sistema detectó un número de teléfono incorrecto.";
     }
     
-    console.log('[addCustomer] ✅ Using lead phone number:', leadPhoneNumber);
-    console.log('[addCustomer] Comments content:', comments);
+    await log('[addCustomer] Using lead phone number:', { leadPhoneNumber, projectName });
     
     if (!BITRIX_WEBHOOK_BASE) {
-        console.error('[addCustomer] BITRIX_WEBHOOK_BASE not set');
+        await log('[addCustomer] BITRIX_WEBHOOK_BASE not set', {}, 'error');
         return "Error: CRM configuration missing";
     }
 
@@ -537,7 +534,7 @@ async function addCustomerContactAndProjectToCRM(
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
         commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
-        console.log('[addCustomer] Adding summary with length:', summaryText.length);
+        await log('[addCustomer] Adding summary', { summaryLength: summaryText.length });
     } else {
         const defaultNote = 'Lead registrado desde WhatsApp. Proyecto: ' + projectName;
         commands.addNote = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(defaultNote)}`;
@@ -550,8 +547,8 @@ async function addCustomerContactAndProjectToCRM(
     }
 
     try {
-        console.log('[addCustomer] Sending batch request to Bitrix...');
-        console.log('[addCustomer] Creating contact with phone:', leadPhoneNumber);
+        await log('[addCustomer] Sending batch request to Bitrix...', { leadPhoneNumber, projectName });
+        
         const response = await axios({
             method: 'POST',
             url: batchUrl,
@@ -561,43 +558,46 @@ async function addCustomerContactAndProjectToCRM(
             }
         });
 
-        console.log('[addCustomer] Batch response:', JSON.stringify(response.data));
+        await log('[addCustomer] Batch response received', { 
+            hasResult: !!response.data?.result,
+            responseKeys: Object.keys(response.data || {})
+        });
 
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
-            console.log('[addCustomer] ✅ Deal created with ID:', dealId, '| Lead phone:', leadPhoneNumber);
+            await log('[addCustomer] ✅ Deal created successfully', { 
+                dealId, 
+                leadPhoneNumber,
+                projectName,
+                firstName,
+                lastName
+            });
             
             if (response.data.result.result.addSummary) {
-                console.log('[addCustomer] ✅ Summary added to timeline successfully');
+                await log('[addCustomer] ✅ Summary added to timeline');
             } else if (response.data.result.result_error && response.data.result.result_error.addSummary) {
-                console.error('[addCustomer] ❌ Error adding summary:', response.data.result.result_error.addSummary);
+                await log('[addCustomer] ❌ Error adding summary', { 
+                    error: response.data.result.result_error.addSummary 
+                }, 'error');
             }
             
             return "The customer contact has been saved - don't tell the customer about that it's just for our backend";
         } else {
-            console.error('[addCustomer] Batch error:', response.data);
+            await log('[addCustomer] Batch error - no result', { 
+                responseData: response.data 
+            }, 'error');
             return null;
         }
     } catch (error) {
-        console.error('[addCustomer] Error:', error.message);
-        console.error('[addCustomer] Stack:', error.stack);
+        await log('[addCustomer] Exception occurred', { 
+            message: error.message,
+            stack: error.stack,
+            leadPhoneNumber,
+            projectName
+        }, 'error');
         return null;
     }
 }
-
-// 🔥 MEJORADO: getOrCreateThreadId con mejor manejo de concurrencia
-const getOrCreateThreadId = async (phoneNumber) => {
-    try {
-        // Verificar cache primero
-        if (threadCache.has(phoneNumber)) {
-            console.log('✅ Found thread in cache for:', phoneNumber);
-            return threadCache.get(phoneNumber);
-        }
-
-        // Adquirir lock para evitar crear threads duplicados
-        while (userLocks.get(phoneNumber)) {
-            console.log('⏳ Waiting for lock to be released for:', phoneNumber);
-            await delay(100);
         }
         
         userLocks.set(phoneNumber, true);
