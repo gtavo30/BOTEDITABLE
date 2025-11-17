@@ -5,7 +5,11 @@ const OpenAI = require("openai");
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const { Logtail } = require("@logtail/node");
-const logtail = new Logtail("AaptuBgpDT3T9491hvW1PTMt");
+
+// Inicializar Better Stack de forma más robusta
+const logtail = new Logtail("AaptuBgpDT3T9491hvW1PTMt", {
+    throwExceptions: false
+});
 
 require("dotenv").config();
 
@@ -33,28 +37,36 @@ const openai = new OpenAI({
     apiKey: apiKey,
 });
 
-// 📊 Función de logging que envía a consola Y Better Stack
+// 📊 Función de logging MEJORADA - no bloquea el bot
 async function log(message, data = {}, level = 'info') {
   const timestamp = new Date().toISOString();
   const logEntry = `${timestamp} ${message}`;
   
-  // Siempre mostrar en consola
+  // SIEMPRE mostrar en consola primero
   console.log(logEntry, data);
   
-  // Enviar a Better Stack
-  try {
-    if (level === 'error') {
-      await logtail.error(message, data);
-    } else if (level === 'warn') {
-      await logtail.warn(message, data);
-    } else {
-      await logtail.info(message, data);
+  // Enviar a Better Stack de forma asíncrona sin bloquear
+  setImmediate(() => {
+    try {
+      const logData = { message, ...data };
+      
+      if (level === 'error') {
+        logtail.error(message, logData);
+      } else if (level === 'warn') {
+        logtail.warn(message, logData);
+      } else {
+        logtail.info(message, logData);
+      }
+    } catch (err) {
+      // Silencioso - no interrumpir el flujo del bot
     }
-    await logtail.flush();
-  } catch (err) {
-    console.error('Error sending to Better Stack:', err);
-  }
+  });
 }
+
+// Flush periódico cada 10 segundos
+setInterval(() => {
+  logtail.flush().catch(() => {});
+}, 10000);
 
 // 🔥 CACHE para deduplicación de mensajes (en memoria)
 const processedMessages = new Set();
@@ -1113,4 +1125,3 @@ app.get('/healthz', (_req, res) => {
         threads: threadCache.size
     });
 });
-
