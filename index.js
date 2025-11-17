@@ -5,7 +5,7 @@ const OpenAI = require("openai");
 const fs = require('fs').promises;
 const fsSync = require('fs');
 const { Logtail } = require("@logtail/node");
-const logtail = new Logtail("2pELuxo9yuSQr6gDQeqzY4Vvkbga49nj");
+const logtail = new Logtail("AaptuBgpDT3T9491hvW1PTMt");
 
 require("dotenv").config();
 
@@ -1113,3 +1113,4 @@ app.get('/healthz', (_req, res) => {
         threads: threadCache.size
     });
 });
+
