@@ -37,28 +37,52 @@ const openai = new OpenAI({
     apiKey: apiKey,
 });
 
-// 📊 Función de logging MEJORADA - no bloquea el bot
+// 📊 Función de logging MEJORADA con visibilidad ocasional
+let betterStackSuccessCount = 0;
+let betterStackErrorCount = 0;
+let lastBetterStackReport = Date.now();
+
 async function log(message, data = {}, level = 'info') {
   const timestamp = new Date().toISOString();
   const logEntry = `${timestamp} ${message}`;
   
-  // SIEMPRE mostrar en consola primero
+  // SIEMPRE mostrar en consola
   console.log(logEntry, data);
   
   // Enviar a Better Stack de forma asíncrona sin bloquear
-  setImmediate(() => {
+  setImmediate(async () => {
     try {
       const logData = { message, ...data };
       
       if (level === 'error') {
-        logtail.error(message, logData);
+        await logtail.error(message, logData);
       } else if (level === 'warn') {
-        logtail.warn(message, logData);
+        await logtail.warn(message, logData);
       } else {
-        logtail.info(message, logData);
+        await logtail.info(message, logData);
       }
+      
+      betterStackSuccessCount++;
+      
+      // Reportar cada 20 logs exitosos
+      if (betterStackSuccessCount % 20 === 0) {
+        console.log(`✅ Better Stack: ${betterStackSuccessCount} logs enviados exitosamente`);
+      }
+      
     } catch (err) {
-      // Silencioso - no interrumpir el flujo del bot
+      betterStackErrorCount++;
+      
+      // Reportar cada 5 errores
+      if (betterStackErrorCount % 5 === 0) {
+        console.error(`⚠️ Better Stack error count: ${betterStackErrorCount}`, err.message);
+      }
+    }
+    
+    // Reporte cada 5 minutos
+    const now = Date.now();
+    if (now - lastBetterStackReport > 300000) { // 5 minutos
+      console.log(`📊 Better Stack Stats - Exitosos: ${betterStackSuccessCount}, Errores: ${betterStackErrorCount}`);
+      lastBetterStackReport = now;
     }
   });
 }
