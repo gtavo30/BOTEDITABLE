@@ -6,12 +6,19 @@ const fs = require('fs').promises;
 const fsSync = require('fs');
 const { Logtail } = require("@logtail/node");
 
+require("dotenv").config();
+
+// 🔍 DEBUG: Verificar Better Stack Token
+const BETTER_STACK_TOKEN = process.env.BETTER_STACK_TOKEN || "AaptuBgpDT3T9491hvW1PTMt";
+console.log('🔍 [DEBUG] Better Stack Token (primeros 10 chars):', BETTER_STACK_TOKEN.substring(0, 10) + '...');
+console.log('🔍 [DEBUG] Better Stack Token length:', BETTER_STACK_TOKEN.length);
+
 // Inicializar Better Stack de forma más robusta
-const logtail = new Logtail("AaptuBgpDT3T9491hvW1PTMt", {
+const logtail = new Logtail(BETTER_STACK_TOKEN, {
     throwExceptions: false
 });
 
-require("dotenv").config();
+console.log('🔍 [DEBUG] Better Stack inicializado correctamente');
 
 const { appendDealChatResumen } = require('./bitrixWebhookClient');
 
@@ -52,6 +59,12 @@ async function log(message, data = {}, level = 'info') {
   // Enviar a Better Stack de forma asíncrona sin bloquear
   setImmediate(async () => {
     try {
+      console.log('🔍 [DEBUG] Intentando enviar a Better Stack...', { 
+        message: message.substring(0, 50) + '...', 
+        level,
+        hasData: Object.keys(data).length > 0
+      });
+      
       const logData = { message, ...data };
       
       if (level === 'error') {
@@ -63,6 +76,7 @@ async function log(message, data = {}, level = 'info') {
       }
       
       betterStackSuccessCount++;
+      console.log('✅ [DEBUG] Better Stack: Log enviado exitosamente. Total:', betterStackSuccessCount);
       
       // Reportar cada 20 logs exitosos
       if (betterStackSuccessCount % 20 === 0) {
@@ -72,10 +86,13 @@ async function log(message, data = {}, level = 'info') {
     } catch (err) {
       betterStackErrorCount++;
       
-      // Reportar cada 5 errores
-      if (betterStackErrorCount % 5 === 0) {
-        console.error(`⚠️ Better Stack error count: ${betterStackErrorCount}`, err.message);
-      }
+      // 🔍 TEMPORAL: Mostrar TODOS los errores para debugging
+      console.error('❌ [DEBUG] Better Stack ERROR:', {
+        count: betterStackErrorCount,
+        errorMessage: err.message,
+        errorName: err.name,
+        errorStack: err.stack ? err.stack.substring(0, 200) : 'No stack trace'
+      });
     }
     
     // Reporte cada 5 minutos
@@ -89,7 +106,15 @@ async function log(message, data = {}, level = 'info') {
 
 // Flush periódico cada 10 segundos
 setInterval(() => {
-  logtail.flush().catch(() => {});
+  console.log('🔍 [DEBUG] Ejecutando flush de Better Stack...');
+  logtail.flush().then(() => {
+    console.log('✅ [DEBUG] Flush completado exitosamente');
+  }).catch((err) => {
+    console.error('❌ [DEBUG] Error en flush:', {
+      message: err.message,
+      name: err.name
+    });
+  });
 }, 10000);
 
 // 🔥 CACHE para deduplicación de mensajes (en memoria)
