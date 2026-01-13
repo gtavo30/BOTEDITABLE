@@ -4,21 +4,8 @@ const axios = require("axios");
 const OpenAI = require("openai");
 const fs = require('fs').promises;
 const fsSync = require('fs');
-const { Logtail } = require("@logtail/node");
 
 require("dotenv").config();
-
-// 🔍 DEBUG: Verificar Better Stack Token
-const BETTER_STACK_TOKEN = process.env.BETTER_STACK_TOKEN || "AaptuBgpDT3T9491hvW1PTMt";
-console.log('🔍 [DEBUG] Better Stack Token (primeros 10 chars):', BETTER_STACK_TOKEN.substring(0, 10) + '...');
-console.log('🔍 [DEBUG] Better Stack Token length:', BETTER_STACK_TOKEN.length);
-
-// Inicializar Better Stack de forma más robusta
-const logtail = new Logtail(BETTER_STACK_TOKEN, {
-    throwExceptions: false
-});
-
-console.log('🔍 [DEBUG] Better Stack inicializado correctamente');
 
 const { appendDealChatResumen } = require('./bitrixWebhookClient');
 
@@ -44,90 +31,17 @@ const openai = new OpenAI({
     apiKey: apiKey,
 });
 
-// 📊 Función de logging MEJORADA con visibilidad ocasional
-let betterStackSuccessCount = 0;
-let betterStackErrorCount = 0;
-let lastBetterStackReport = Date.now();
-
-async function log(message, data = {}, level = 'info') {
-  const timestamp = new Date().toISOString();
-  const logEntry = `${timestamp} ${message}`;
-  
-  // SIEMPRE mostrar en consola
-  console.log(logEntry, data);
-  
-  // Enviar a Better Stack de forma asíncrona sin bloquear
-  setImmediate(async () => {
-    try {
-      console.log('🔍 [DEBUG] Intentando enviar a Better Stack...', { 
-        message: message.substring(0, 50) + '...', 
-        level,
-        hasData: Object.keys(data).length > 0
-      });
-      
-      const logData = { message, ...data };
-      
-      if (level === 'error') {
-        await logtail.error(message, logData);
-      } else if (level === 'warn') {
-        await logtail.warn(message, logData);
-      } else {
-        await logtail.info(message, logData);
-      }
-      
-      betterStackSuccessCount++;
-      console.log('✅ [DEBUG] Better Stack: Log enviado exitosamente. Total:', betterStackSuccessCount);
-      
-      // Reportar cada 20 logs exitosos
-      if (betterStackSuccessCount % 20 === 0) {
-        console.log(`✅ Better Stack: ${betterStackSuccessCount} logs enviados exitosamente`);
-      }
-      
-    } catch (err) {
-      betterStackErrorCount++;
-      
-      // 🔍 TEMPORAL: Mostrar TODOS los errores para debugging
-      console.error('❌ [DEBUG] Better Stack ERROR:', {
-        count: betterStackErrorCount,
-        errorMessage: err.message,
-        errorName: err.name,
-        errorStack: err.stack ? err.stack.substring(0, 200) : 'No stack trace'
-      });
-    }
-    
-    // Reporte cada 5 minutos
-    const now = Date.now();
-    if (now - lastBetterStackReport > 300000) { // 5 minutos
-      console.log(`📊 Better Stack Stats - Exitosos: ${betterStackSuccessCount}, Errores: ${betterStackErrorCount}`);
-      lastBetterStackReport = now;
-    }
-  });
-}
-
-// Flush periódico cada 10 segundos
-setInterval(() => {
-  console.log('🔍 [DEBUG] Ejecutando flush de Better Stack...');
-  logtail.flush().then(() => {
-    console.log('✅ [DEBUG] Flush completado exitosamente');
-  }).catch((err) => {
-    console.error('❌ [DEBUG] Error en flush:', {
-      message: err.message,
-      name: err.name
-    });
-  });
-}, 10000);
-
 // 🔥 CACHE para deduplicación de mensajes (en memoria)
 const processedMessages = new Set();
 const CACHE_CLEANUP_INTERVAL = 3600000; // 1 hora
 const CACHE_MAX_SIZE = 10000;
 
-// 🔥 NUEVO: Sistema de colas por usuario
+// 🔥 Sistema de colas por usuario
 const userQueues = new Map();
 const userLocks = new Map();
 const userTimers = new Map();
 
-// 🔥 NUEVO: Cache de threads en memoria
+// 🔥 Cache de threads en memoria
 const threadCache = new Map();
 
 // Configuración de debounce
@@ -141,7 +55,7 @@ setInterval(() => {
     }
 }, CACHE_CLEANUP_INTERVAL);
 
-// 🔥 NUEVO: Cargar threads al iniciar el servidor
+// 🔥 Cargar threads al iniciar el servidor
 async function loadThreadsFromFile() {
     try {
         if (!fsSync.existsSync('users_threads.json')) {
@@ -163,7 +77,7 @@ async function loadThreadsFromFile() {
     }
 }
 
-// 🔥 NUEVO: Guardar thread en archivo y cache
+// 🔥 Guardar thread en archivo y cache
 async function saveThreadToFile(phoneNumber, threadId) {
     try {
         threadCache.set(phoneNumber, threadId);
@@ -193,7 +107,7 @@ async function saveThreadToFile(phoneNumber, threadId) {
     }
 }
 
-// 🔥 NUEVO: Inicializar cola para un usuario
+// 🔥 Inicializar cola para un usuario
 function initializeQueue(userId) {
     if (!userQueues.has(userId)) {
         userQueues.set(userId, {
@@ -205,7 +119,7 @@ function initializeQueue(userId) {
     }
 }
 
-// 🔥 NUEVO: Procesar cola de mensajes
+// 🔥 Procesar cola de mensajes
 async function processMessageQueue(userId, phone_no_id, token, platform = 'whatsapp') {
     const queue = userQueues.get(userId);
     
@@ -294,7 +208,7 @@ async function processMessageQueue(userId, phone_no_id, token, platform = 'whats
     }
 }
 
-// 🔥 NUEVO: Limpiar colas inactivas
+// 🔥 Limpiar colas inactivas
 setInterval(() => {
     const now = Date.now();
     const INACTIVE_THRESHOLD = 30 * 60 * 1000;
@@ -313,7 +227,7 @@ setInterval(() => {
     }
 }, 30 * 60 * 1000);
 
-// 🔥 NUEVO: Programar procesamiento con debounce
+// 🔥 Programar procesamiento con debounce
 function scheduleProcessing(userId, phone_no_id, token, platform) {
     if (userTimers.has(userId)) {
         clearTimeout(userTimers.get(userId));
@@ -406,22 +320,9 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
     console.log('📱 Platform:', platform);
     console.log('🚨🚨🚨 ============================================');
     
-    await log('[sendApptNotification] Starting...', { 
-        leadPhoneNumber,
-        recipientName, 
-        date, 
-        time, 
-        projectName, 
-        platform 
-    });
-    
     try {
         if (leadPhoneNumber === SALES_MAN) {
             console.log('🚨🚨🚨 ERROR: Trying to use SALES_MAN number as lead!');
-            await log('[sendApptNotification] ERROR: Trying to use SALES_MAN number as lead!', { 
-                leadPhoneNumber, 
-                SALES_MAN 
-            }, 'error');
             return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
         }
         
@@ -430,12 +331,10 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
         
         if (!isValidPhone) {
             console.log('🚨 Invalid phone number format:', leadPhoneNumber);
-            await log('[sendApptNotification] Invalid phone number', { leadPhoneNumber }, 'error');
             return "Error: El número de teléfono proporcionado no es válido. Por favor proporciona un número válido para agendar la cita.";
         }
 
         console.log('✅ Phone validation passed');
-        await log('[sendApptNotification] Validation passed', { leadPhoneNumber, SALES_MAN });
 
         if (platform === 'whatsapp' && phone_no_id) {
             console.log('📤 Preparing WhatsApp template message...');
@@ -471,22 +370,11 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
                 'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             };
-
-            await log('[sendApptNotification] Sending notification to salesman', { 
-                salesman: SALES_MAN,
-                leadName: recipientName,
-                leadPhone: leadPhoneNumber,
-                project: projectName
-            });
             
             console.log('🚀 SENDING NOTIFICATION TO WHATSAPP API...');
             const response = await axios.post(url, message_payload, { headers });
             console.log('✅✅✅ NOTIFICATION SENT SUCCESSFULLY!');
             console.log('📬 WhatsApp Response:', JSON.stringify(response.data, null, 2));
-
-            await log('[sendApptNotification] Notification sent successfully', { 
-                messageId: response.data.messages?.[0]?.id 
-            });
             
         } else if (platform === 'messenger' || platform === 'instagram') {
             console.log('📤 Messenger/Instagram: Sending notification via WhatsApp to salesman');
@@ -557,13 +445,6 @@ const sendApptNotificationToSalesMan = async (phone_no_id, token, leadPhoneNumbe
         console.log('🚨🚨🚨 ERROR IN APPOINTMENT NOTIFICATION!!!');
         console.error('Error message:', error.message);
         console.error('Error stack:', error.stack);
-        
-        await log('[sendApptNotification] Exception occurred', {
-            message: error.message,
-            stack: error.stack,
-            leadPhoneNumber,
-            projectName
-        }, 'error');
         return "Error notifying salesman";
     }
 };
@@ -590,31 +471,15 @@ async function addCustomerContactAndProjectToCRM(
     console.log('💬 Comments length:', comments ? comments.length : 0);
     console.log('🚨🚨🚨 ============================================');
     
-    await log('[addCustomer] Input:', { 
-        leadPhoneNumber,
-        firstName, 
-        lastName, 
-        email, 
-        projectName,
-        commentsLength: comments ? comments.length : 0,
-        conversationLength: conversationHistory ? conversationHistory.length : 0
-    });
-    
     if (leadPhoneNumber === SALES_MAN) {
         console.log('🚨🚨🚨 ERROR: Trying to use SALES_MAN number as lead in CRM!');
-        await log('[addCustomer] ERROR: Trying to use SALES_MAN number as lead!', { 
-            leadPhoneNumber, 
-            SALES_MAN 
-        }, 'error');
         return "Error interno: El sistema detectó un número de teléfono incorrecto. Por favor verifica el número del cliente.";
     }
     
     console.log('✅ Using lead phone number:', leadPhoneNumber);
-    await log('[addCustomer] Using lead phone number', { leadPhoneNumber, projectName });
     
     if (!BITRIX_WEBHOOK_BASE) {
         console.log('🚨 ERROR: BITRIX_WEBHOOK_BASE not set!');
-        await log('[addCustomer] BITRIX_WEBHOOK_BASE not set', {}, 'error');
         return "Error: CRM configuration missing";
     }
 
@@ -634,7 +499,6 @@ async function addCustomerContactAndProjectToCRM(
     if (comments) {
         const summaryText = '📋 RESUMEN DE CONVERSACIÓN:\n\n' + comments;
         commands.addSummary = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(summaryText)}`;
-        await log('[addCustomer] Adding summary', { summaryLength: summaryText.length });
     } else {
         const defaultNote = 'Lead registrado desde WhatsApp. Proyecto: ' + projectName;
         commands.addNote = `crm.timeline.comment.add?fields[ENTITY_ID]=$result[createDeal]&fields[ENTITY_TYPE]=deal&fields[COMMENT]=${encodeURIComponent(defaultNote)}`;
@@ -648,7 +512,6 @@ async function addCustomerContactAndProjectToCRM(
 
     try {
         console.log('🚀 SENDING BATCH REQUEST TO BITRIX...');
-        await log('[addCustomer] Sending batch request to Bitrix', { leadPhoneNumber, projectName, assignedUserId });
         
         const response = await axios({
             method: 'POST',
@@ -660,10 +523,6 @@ async function addCustomerContactAndProjectToCRM(
         });
 
         console.log('📬 Bitrix Response:', JSON.stringify(response.data, null, 2));
-        await log('[addCustomer] Batch response received', { 
-            hasResult: !!response.data?.result,
-            responseKeys: Object.keys(response.data || {})
-        });
 
         if (response.data && response.data.result) {
             const dealId = response.data.result.result.createDeal;
@@ -671,44 +530,17 @@ async function addCustomerContactAndProjectToCRM(
             console.log('✅✅✅ CONTACT CREATED! Contact ID:', contactId);
             console.log('✅✅✅ DEAL CREATED! Deal ID:', dealId);
             console.log('👤✅ Lead assigned to salesperson ID:', assignedUserId);
-            await log('[addCustomer] Deal created successfully', { 
-                dealId, 
-                contactId,
-                leadPhoneNumber,
-                projectName,
-                firstName,
-                lastName,
-                assignedUserId
-            });
-            
-            if (response.data.result.result.addSummary) {
-                await log('[addCustomer] Summary added to timeline');
-            } else if (response.data.result.result_error && response.data.result.result_error.addSummary) {
-                await log('[addCustomer] Error adding summary', { 
-                    error: response.data.result.result_error.addSummary 
-                }, 'error');
-            }
             
             console.log('🎉🎉🎉 CRM REGISTRATION COMPLETED SUCCESSFULLY!');
             return "The customer contact has been saved - don't tell the customer about that it's just for our backend";
         } else {
             console.log('🚨 Batch error - no result in response');
-            await log('[addCustomer] Batch error - no result', { 
-                responseData: response.data 
-            }, 'error');
             return null;
         }
     } catch (error) {
         console.log('🚨🚨🚨 ERROR IN CRM REGISTRATION!!!');
         console.error('Error message:', error.message);
         console.error('Error stack:', error.stack);
-        
-        await log('[addCustomer] Exception occurred', { 
-            message: error.message,
-            stack: error.stack,
-            leadPhoneNumber,
-            projectName
-        }, 'error');
         return null;
     }
 }
