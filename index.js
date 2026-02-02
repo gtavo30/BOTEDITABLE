@@ -620,10 +620,26 @@ const getAssistantResponse = async function (prompt, phone_no_id, token, leadPho
                 return "Perdón, ese mensaje no llegó bien. ¿Me lo puedes repetir?";
             }
 
+            // 🔥🔥🔥 CÓDIGO MODIFICADO - INYECCIÓN EXPLÍCITA DEL NÚMERO DEL LEAD 🔥🔥🔥
             let enhancedPrompt = prompt;
-            if (platform === 'messenger' || platform === 'instagram') {
-                enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. Este es su ID: ${leadPhoneNumber}. IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, DEBES incluir el parámetro recipientNumber con el número de teléfono que el cliente te proporcione en la conversación (ejemplo: +593984679525). NO uses el ID ${leadPhoneNumber} como número de teléfono.]\n\n${prompt}`;
+
+            if (platform === 'whatsapp') {
+                // 🔥 PARA WHATSAPP: Inyectar el número del lead explícitamente
+                enhancedPrompt = `[SYSTEM: El número de teléfono de este cliente es: ${leadPhoneNumber}. 
+IMPORTANTE: Cuando llames a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan, 
+USA ESTE NÚMERO como recipientNumber: ${leadPhoneNumber}
+NUNCA uses 593984679525 como número del cliente, ese es el número del vendedor.]\n\n${prompt}`;
+                
+            } else if (platform === 'messenger' || platform === 'instagram') {
+                // 🔥 PARA MESSENGER/INSTAGRAM: Indicar que NO tiene el número
+                enhancedPrompt = `[SYSTEM: Este cliente está escribiendo desde ${platform.toUpperCase()}. 
+Este es su ID de ${platform}: ${leadPhoneNumber}. 
+IMPORTANTE: NO TIENES su número de teléfono todavía.
+DEBES pedirle su número de celular ANTES de llamar a las funciones addCustomerContactAndProjectToCRM o sendApptNotificationToSalesMan.
+Cuando te lo dé, usa ESE número como recipientNumber (ejemplo: +593984679525).
+NO uses el ID ${leadPhoneNumber} como número de teléfono.]\n\n${prompt}`;
             }
+            // 🔥🔥🔥 FIN DEL CÓDIGO MODIFICADO 🔥🔥🔥
 
             const threadId = typeof thread === 'string' ? thread : thread.id;
             
