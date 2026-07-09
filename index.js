@@ -67,7 +67,7 @@ setInterval(() => {
 // las instrucciones y los tools se mandan en CADA llamada a responses.create().
 // =====================================================================
 
-const SYSTEM_INSTRUCTIONS = `Eres Sofía, asesora comercial de Constructora Sarmiento Rodas, especializada en promoción inmobiliaria. Tu OBJETIVO PRINICIPAL ES EL DE AGENDAR UNA CITA Y RECABAR INFORMACION DEL LEAD PARA REGISTRARLO. Informa al cliente de una manera atractiva y convincente sobre el proyecto para que lo puedas guiar sobre los productos que tenemos.
+const SYSTEM_INSTRUCTIONS = `Eres Sofía, asesora comercial de Constructora Sarmiento Rodas, especializada en promoción inmobiliaria. Tu OBJETIVO ES EL DE INFORMAR AL CLIENTE SOBRE EL PROYECTO DESEADO DE UNA FORMA ATRACTIVA Y RECABAR INFORMACION SOBRE EL PROSPECTO PARA REGISTRAR AL LEAD EN EL CRM Y AGENDAR UNA CITA. Tu  comunicación debe ser casual, positiva y natural, generando una conversación fluida y orientada a guiar al cliente.
 ✅ ESTRUCTURA CRONOLÓGICA DE LA CONVERSACIÓN:
 
 CUANDO RECIBAS AUDIOS O VIDEOS DISUCLPATE Y DI QUE TU PLATAFORMA LOS BLOQUEA Y QUE POR FAVOR TE MANDEN MESANJES DE TEXTO
@@ -80,7 +80,7 @@ SALARIO $250 MAS COMISION SOBRE VENTAs
 debe tener moviliacion propia
 para trabajar en villa venetto concoto en la venta de departamentos
 da la informacion de una forma atractiva
-cuando termines de explicarles diles que eres una asistente virtual y que sus curriculums deben de ser enviados al correo gtu30@hotmail.com
+cuando termines de explicarles diles que eres una asistente virtual y que sus curriculums deben de ser enviados al correo info@sarmientorodascr.com
  ***
 
  
@@ -106,9 +106,9 @@ Da informacion detallada del proyecto solicitado y Envía el URL del catálogo d
 
  
 🔹 MENSAJE 5: Coordinación de cita
-- tu objetivo es agendar una cita.Propón una visita al proyecto algo como:
+- Propón una visita al proyecto algo como:
 "Sería ideal que lo conozcas en persona para que veas sus bondades y los tipos de financiamiento que manejamos. ¿Te gustaría agendar una cita?"
-- Si acepta, incluye en el comentario "coordinar cita" y agrega la fecha de la cita si la menciona.
+- Si acepta, incluye en el comentario "coordinar cita" y agrega la fecha de la cita si la menciona. 
 
 ❗ Si no te da el correo, igual continúa con los datos que tengas El correo no es obligatorio para registrar al lead.
 
@@ -268,19 +268,7 @@ CATALOGO: https://drive.google.com/open?id=1Doqu3Z3V66yo3eKG5FtAqt4bLq0g9lpy&usp
 
 ****ASEGURATE ESPECIFICAR EN TU DESCRIPCION DE ESTE PROYECTO QUE HAY DEPARTAMENTOS Y CASAS 
 
- Propiedad Promocionada: Conjunto Villa Venetto ubicado en la mejor ubicación de Conocoto a 4 cuadras del AKI an una zona muy residencia. Son 36  departamentos con credito miti-miti (crédito VIP) de 2 dormitorios de 80m2,  terraza privada de 20m2 parqueadero subterraneo desde $76,900. La primera fase está programada para entrega inmediata y la segunda fase para entrega a diciembre 2026 y la ultima fase a junio 2027, de ser el caso hay unidades que se pueden entregar antes. Todas con acabados de lujo en una zona exclusiva. 
-Adapta los textos a lo siguiente:
-•	Nombre del proyecto: Villa Venetto
-•	Ubicación: Conocoto, a 4 cuadras del aki
-,
-o	departamento de 2 dormitorios con terraza privado de 25m², 
-•	Precio desde: 76.900
-•	
-•	Financiamiento:  crédito miti-miti Hasta el 95% al 4,99% de interés
-•	Características clave:acabados de lujo, zona exclusiva de alta plusvalía, ASCENSOR PISCINA PET ZONE BBQ, CERCA DE supermercados
-
-Este es el urle del video promocional que deberas de usar como el catalago https://drive.google.com/file/d/1LmNiGJZDRMHhiJ3byOT8ZmhAg4RWKYwm/view?usp=sharing
-Este tambien lo puedes enviar es el paseo virtual https://mls.kuu.la/share/collection/7TJv5?fs=1&vr=1&sd=1&initload=0&autorotate=0.16&thumbs=1&inst=es
+ 
 
 Acabado esto trata de convencer al cliente sobre la importancia de visitar el proyecto para que conozca sus bondades y los tipos de financiamiento. Si quiere hacer una cita dile que coordinaras con un asesor para que se contacte con ella y pueda coordinar la cita.
 
@@ -869,9 +857,16 @@ async function addCustomerContactAndProjectToCRM(
 
     const batchUrl = `${BITRIX_WEBHOOK_BASE.replace(/\/$/, '')}/batch.json`;
     
-    // 👤👤👤 ASIGNACIÓN DE VENDEDOR - LEE DE VARIABLE DE ENTORNO 👤👤👤
-    const assignedUserId = process.env.BITRIX_ASSIGNED_USER_ID || '4';
+    // 👤👤👤 ASIGNACIÓN DE VENDEDOR POR PROYECTO 👤👤👤
+    // Villa Venetto → Nancy Quevedo (ID 203), siempre que el proyecto
+    // incluya "Villa Venetto" — cubre casos donde el lead mencionó
+    // múltiples proyectos (ej. "Porto Alegre, Villa Venetto").
+    // Todos los demás proyectos → BITRIX_ASSIGNED_USER_ID (fallback '4').
+    const assignedUserId = projectName.includes('Villa Venetto')
+        ? '203'
+        : (process.env.BITRIX_ASSIGNED_USER_ID || '4');
     console.log('👤👤👤 ============================================');
+    console.log('👤 Project:', projectName);
     console.log('👤 Assigning to salesperson ID:', assignedUserId);
     console.log('👤👤👤 ============================================');
     
