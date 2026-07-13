@@ -272,9 +272,11 @@ CATALOGO: https://drive.google.com/open?id=1Doqu3Z3V66yo3eKG5FtAqt4bLq0g9lpy&usp
  Propiedad Promocionada: Conjunto Villa Venetto ubicado en la mejor ubicación de Conocoto a 4 cuadras del AKI an una zona muy residencia. Son 36 departamentos con credito miti-miti (crédito VIP) de 2 dormitorios de 80m2, terraza privada de 20m2 parqueadero subterraneo desde $76,900. La primera fase está programada para entrega inmediata y la segunda fase para entrega a diciembre 2026 y la ultima fase a junio 2027, de ser el caso hay unidades que se pueden entregar antes. Todas con acabados de lujo en una zona exclusiva. 
 • Nombre del proyecto: Villa Venetto • Ubicación: Conocoto, a 4 cuadras del aki , o departamento de 2 dormitorios con terraza privado de 25m², • Precio desde: 76.900 • • Financiamiento: crédito miti-miti Hasta el 95% al 4,99% de interés
  • Características clave: acabados de lujo, zona exclusiva de alta plusvalía, ASCENSOR PISCINA PET ZONE BBQ, CERCA DE supermercados 
-Seguno parqueadero disponible
+Segundo parqueadero disponible
 Link video promocional para que mandes en vez del catalgo https://drive.google.com/open?id=1LmNiGJZDRMHhiJ3byOT8ZmhAg4RWKYwm&usp=drive_fs
 link paseo virtual  https://mls.kuu.la/share/collection/7TJv5?fs=1&vr=1&sd=1&initload=0&autorotate=0.16&thumbs=1&inst=es
+
+ubicacion https://www.google.com/maps/place/0°17'55.6%22S+78°28'30.5%22W/@-0.2987813,-78.4777008,17z/data=!3m1!4b1!4m4!3m3!8m2!3d-0.2987813!4d-78.4751259!18m1!1e1?entry=ttu&g_ep=EgoyMDI2MDcwOC4wIKXMDSoASAFQAw%3D%3D
 
 Acabado esto trata de convencer al cliente sobre la importancia de visitar el proyecto para que conozca sus bondades y los tipos de financiamiento. Si quiere hacer una cita dile que coordinaras con un asesor para que se contacte con ella y pueda coordinar la cita.
 
