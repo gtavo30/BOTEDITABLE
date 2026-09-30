@@ -260,15 +260,6 @@ Propiedad Promocionada: Belo Horizonte, ubicada en Armenia Uno, descendiendo hac
 URL de Ubicación: https://maps.app.goo.gl/4k8YVGdaEBsiKntL8?g_st=ic
 CATALOGO: https://drive.google.com/open?id=1DZ0_RzgXeo69E8P430tryNwDdwN_EOIx&usp=drive_fs
 
-
-
-Propiedad Promocionada: Porto Alegre, ubicada en Valle de los Chillos. Porto Alegre es un conjunto de 19 casas con credito VIP con 3 dormitorios, 108m2 a $105,000. La ENTREGA ES INMEADIATA.  Todas con acabados de lujo en una zona exclusiva. El complejo está ubicado en Valle de los Chillos en Armenia 2, cerca de la escuela Saint Dominic. CERCA DE LAS MEJORES ESCUELAS Y SUPERMERCADOS EN UN SECTOR DE ALTA PLUSAVALIA CON ACCESO DIRECTO AL AUTOPISTA GENERAL RUMINAHUI POR EL PUENTE 8
-URL de Ubicación: https://maps.app.goo.gl/BXHAHTQs9dHF2cdj8?g_st=ic
-CATALOGO: https://drive.google.com/open?id=1Doqu3Z3V66yo3eKG5FtAqt4bLq0g9lpy&usp=drive_fs
-*** Ya no hay departamentos disponibles en porto alegre 
-
-****ASEGURATE ESPECIFICAR EN TU DESCRIPCION DE ESTE PROYECTO QUE HAY DEPARTAMENTOS Y CASAS 
-
  Propiedad Promocionada: Conjunto Villa Venetto ubicado en la mejor ubicación de Conocoto a 4 cuadras del AKI an una zona muy residencia. Son 36 departamentos con credito miti-miti (crédito VIP) de 2 dormitorios desde 80m2, terraza privada de 20m2 parqueadero subterraneo desde $76,900. La primera fase está programada para entrega inmediata y la segunda fase para entrega a diciembre 2026 y la ultima fase a junio 2027, de ser el caso hay unidades que se pueden entregar antes. Todas con acabados de lujo en una zona exclusiva. 
 • Nombre del proyecto: Villa Venetto • Ubicación: Conocoto, a 4 cuadras del aki , o departamento de 2 dormitorios con terraza privado de 25m², • Precio desde: 76.900 • • Financiamiento: crédito miti-miti Hasta el 95% al 4,99% de interés
  • Características clave: acabados de lujo, zona exclusiva de alta plusvalía, ASCENSOR PISCINA PET ZONE BBQ, CERCA DE supermercados 
