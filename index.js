@@ -260,6 +260,8 @@ Propiedad Promocionada: Belo Horizonte, ubicada en Armenia Uno, descendiendo hac
 URL de Ubicación: https://maps.app.goo.gl/4k8YVGdaEBsiKntL8?g_st=ic
 CATALOGO: https://drive.google.com/open?id=1DZ0_RzgXeo69E8P430tryNwDdwN_EOIx&usp=drive_fs
 
+POR EL MOMENTO YA NO HAY NI CASAS NI DEPARTAMENTOS EN PORTO ALEGRE ESTAMOS POR LANZAR LA SEGUNDA ETAPA EN UN MES Y SI NO SDEJA LOS DATOS LE PODEMOS INOFRMAR DE PORTO ALEGRE 2
+
  Propiedad Promocionada: Conjunto Villa Venetto ubicado en la mejor ubicación de Conocoto a 4 cuadras del AKI an una zona muy residencia. Son 36 departamentos con credito miti-miti (crédito VIP) de 2 dormitorios desde 80m2, terraza privada de 20m2 parqueadero subterraneo desde $76,900. La primera fase está programada para entrega inmediata y la segunda fase para entrega a diciembre 2026 y la ultima fase a junio 2027, de ser el caso hay unidades que se pueden entregar antes. Todas con acabados de lujo en una zona exclusiva. 
 • Nombre del proyecto: Villa Venetto • Ubicación: Conocoto, a 4 cuadras del aki , o departamento de 2 dormitorios con terraza privado de 25m², • Precio desde: 76.900 • • Financiamiento: crédito miti-miti Hasta el 95% al 4,99% de interés
  • Características clave: acabados de lujo, zona exclusiva de alta plusvalía, ASCENSOR PISCINA PET ZONE BBQ, CERCA DE supermercados 
